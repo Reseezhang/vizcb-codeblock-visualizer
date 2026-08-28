@@ -1,0 +1,15 @@
+# vizcb-codeblock-visualizer - mount layer (bundle patch)
+#
+# 配置项（默认值在 lib/index.js 的 DEFAULTS；可在 profile 级 cordis.patch.yml
+# 按 id 覆盖，例如）：
+#   - id: vizcb-codeblock-visualizer
+#     config:
+#       maxBlocks: 8
+#       maxBlockChars: 65536
+#       retryDelayMs: 2000
+#       minSvgHeight: 120
+#       mermaidEnabled: true
+#       htmlAllowScripts: false
+- insert:
+    - id: vizcb-codeblock-visualizer
+      name: 'vizcb-codeblock-visualizer'

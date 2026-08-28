@@ -1,0 +1,41 @@
+{
+    "name":  "vizcb-codeblock-visualizer",
+    "description":  "Render svg/html/mermaid code blocks as diagram cards (v3: host-side mermaid rendering).",
+    "version":  "1.4.0",
+    "license":  "MIT",
+    "type":  "module",
+    "main":  "lib/index.js",
+    "exports":  {
+                    ".":  {
+                              "default":  "./lib/index.js"
+                          },
+                    "./client":  {
+                                     "default":  "./lib/client.js"
+                                 },
+                    "./package.json":  "./package.json"
+                },
+    "dsh":  {
+                "bundle":  {
+                               "patch":  "./cordis.patch.yml"
+                           },
+                "client":  {
+                               "inject":  [
+                                              "@deepseek-ai/dsh-client-runtime",
+                                              "@deepseek-ai/dsh-client-ui-conversation"
+                                          ],
+                               "platform":  "web"
+                           }
+            },
+    "files":  [
+                  "lib/index.js",
+                  "lib/client.js",
+                  "cordis.patch.yml",
+                  "README.md"
+              ],
+    "dependencies":  {
+                         "dompurify":  "^3.4.13",
+                         "jsdom":  "^30.0.1",
+                         "mermaid":  "^11.16.1",
+                         "svgdom":  "^0.1.28"
+                     }
+}

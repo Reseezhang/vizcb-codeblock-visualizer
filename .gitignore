@@ -1,0 +1,11 @@
+# 依赖（可 npm install 重建，不入库）
+node_modules/
+
+# 打包/调试产物
+*.zip
+*.log
+vizcb-*-install/
+
+# 系统文件
+Thumbs.db
+.DS_Store

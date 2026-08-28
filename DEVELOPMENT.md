@@ -1,0 +1,93 @@
+# vizcb-codeblock-visualizer 开发历程
+
+把 WorkBuddy 内置的「可视化」能力复刻到 DeepSeek Harness 桌面版：让模型在回答中输出 ````svg` / ````html` / ````mermaid` 代码块，宿主把代码块渲染成消息底部的内嵌图表卡片。
+
+---
+
+## 一、架构
+
+**双端插件（Host + Client）**
+
+| 端 | 职责 |
+|---|---|
+| **Host**（Node 进程） | ① 注入「可视化输出规范」提示词 section（固定色板、圆角矩形、≤6 节点、viewBox 规则）② `POST /vizcb/read-turn`：读取回合助手消息、提取行首围栏代码块、返回 `{blocks, reason}` ③ `POST /vizcb/mermaid.svg`：mermaid+svgdom 宿主渲染为 SVG ④ `GET /vizcb/debug`：自检状态 |
+| **Client**（浏览器） | 挂载 `conversation.chat.turnTail` 链位渲染卡片；SVG 消毒内联 / HTML 空 sandbox iframe / mermaid `<img>`-less 内联；全屏灯箱放大；复制 / 保存导出；失败原因通知条 |
+
+**安全边界**：SVG 消毒（剥 script/on*/javascript:）后内联；HTML 走 `sandbox=""` iframe（禁脚本）；mermaid 宿主渲染零外联零脚本。
+
+---
+
+## 二、版本迭代
+
+| 版本 | 阶段 | 内容 |
+|---|---|---|
+| 动态插件 pkg1–5 | 探索期 | 字段 bug → 数据源 bug → 误报修复 → 加固 → TDZ 修复（详见 Bug 篇） |
+| **1.0.0** | bundle 移植 | 改为 profile bundle 常驻；`host.call` 改 webserver 路由 + 客户端 fetch |
+| **1.1.0** | v2 加固 | SVG 校验 / 图注标题 / 复制+缩放 / mermaid（iframe+CDN）/ 配置化 / per-seq 缓存 / 自检 / 限流 / 网格 / i18n |
+| **1.2.0** | 交互 | 全屏灯箱（react-dom portal，Esc/背景/按钮关闭） |
+| **1.2.1** | mermaid 修复 | 24 个方言别名（flowchart/graph/…）；普通代码块不再误报 |
+| **1.3.0** | mermaid 重构 | **宿主端渲染**（mermaid+svgdom→SVG→内联），彻底弃 CDN/iframe |
+| **1.3.1** | 诊断 | 卡片版本徽标；mermaid 改 fetch+inline（复用已验证通道） |
+| **1.3.2** | 诊断 | 请求级调试日志（read-turn/mermaid 写文件） |
+| **1.3.3** | 视觉 | 箭头可见性增强（亮蓝 2.4px 边 + 1.5× 箭头 + 边标签提亮） |
+| **1.3.4** | 一致性 | SVG 校验改用宽松 HTML 解析，与渲染路径对齐（消除"缩略图报错、灯箱正常"） |
+| **1.4.0** | 导出 | 保存为图片：原生对话框自选位置与格式（PNG/SVG），HTML 导出源文件 |
+
+---
+
+## 三、关键 Bug 与教训（都是踩过的坑）
+
+### 1. `content` vs `text` —— 提示词组装崩溃
+`systemPrompt.section()` 的真实字段是 **`text`**（注册时只校验 `order`，组装时才读 `text`）。写错成 `content` 时注册成功、回合开始时 `undefined.indexOf("{{")` → 整轮 run 失败。
+**教训**：注册 API 的"静默容忍"字段，要在真实源码里核对，不能靠惯例。
+
+### 2. 动态插件进程失活
+动态插件是进程内的 —— 应用重启即失活、需重新授权。桌面版一天重启多次，插件反复消失。
+**方案**：改造为 profile **bundle 插件**（`dsh.profile.bundles` + 包内 `cordis.patch.yml`），跨重启常驻。
+
+### 3. `listEvents` 轻量记录 —— 卡片不出现
+`sessionQuery.listEvents()` 返回的记录**只有 `{sessionId, seq, type, time, surface}`，没有 content**。最初用它做数据源，提取永远是空。
+**修复**：改用 `readEvent()` 拿完整事件快照（`target.data.message.content`）。
+
+### 4. PS 5.1 的 BOM 事故 —— 应用启动崩溃
+环境的 `pwsh` 实际是 **PowerShell 5.1**，`-Encoding utf8` 会写入 **UTF-8 BOM**。我写的所有文件带 BOM；应用用严格 `JSON.parse` 读 profile 的 `package.json` → `Unexpected token ''` → **启动崩溃循环**。而 `node require` 会自动剥 BOM，导致我的校验"通过"了。
+**连带损失**：应用恢复机制重写清单时，把之前就有热挂载问题的 mermaid 插件**整个清除**（目录+依赖）。
+**教训**：写 JSON 给严格解析器必须显式无 BOM（`UTF8Encoding($false)`）；写 .ps1 给 PS 5.1 反而**必须带 BOM**。
+
+### 5. `const` TDZ —— 运行时 ReferenceError
+`const MAX_BLOCKS` 声明在宿主工厂函数 `return` 之后 —— 函数执行到 return 就返回，const 永不初始化；`function` 声明会提升所以其他辅助函数没事。修复：常量移到 return 之前。
+
+### 6. mermaid 渲染三连坑
+- **初始化时序**：`initialize({startOnLoad:true})` 在 `window.load` 里调用，DOMContentLoaded 已过 → 自动渲染永不执行 → iframe 空白
+- **strict 剥 `<br/>`**：`securityLevel:'strict'` 会剥掉标签里的 `<br/>` → 中文流程图标签全挤一行
+- **方言别名**：模型常写 ````flowchart`/````graph` 而不是 ````mermaid` → 不识别
+- **iframe+CDN 在应用内不可靠**（浏览器侧 CDN 被拦/脚本不执行，具体层无法外部判定）→ 最终改 **宿主端渲染**（mermaid+svgdom+dompurify+jsdom，与内置 mermaid 插件同架构），客户端内联渲染，彻底摆脱外联。
+
+### 7. 渲染器页面跨宿主重启存活
+宿主进程重启≠页面重载 —— 渲染器页面"重连"而非"刷新"，**旧 client bundle 一直驻留内存**，改代码永远不生效。症状：SVG 卡片有新版徽标、mermaid 却是旧行为。
+**教训**：加**版本徽标**到卡片头部，一眼确认页面跑的是哪个客户端。
+
+### 8. SVG 校验严格/宽松不一致
+缩略图用严格 XML 解析（`image/svg+xml`），灯箱用宽松 HTML 解析 → 模型 SVG 有轻微瑕疵时"缩略图报错、灯箱正常"。
+**修复**：校验改用 `text/html` + `<svg>` 根元素检查，与渲染路径（`dangerouslySetInnerHTML` 的 HTML 解析器）完全一致。
+
+### 9. 权限策略与沙箱
+文件沙箱 `workspace-write` 拦截对 `~/.dsh` 的写入 → 按规则用 `sandbox_permissions` 升级并附一句 justification（用户审批）。审批策略曾被改为 `never`，之后又恢复 `ask` —— 全程按当前策略行事，不越权。
+
+---
+
+## 四、调试方法论（复现可用）
+
+1. **会话日志解码**：`~/.dsh/sessions/<workspace>/session-<id>/session.jsonl.zstd` 是 **每行一个 zstd 帧**，遍历帧魔数 `28 B5 2F FD` 逐帧解压、按行切分，得到完整事件流（turn/step/assistant-message/tool-call…）。
+2. **asar 索引解析**：`app.asar` 文件头 = 4 字节 pickle + 3 个 uint32 尺寸字段，JSON 索引从偏移 16 开始，offset 是字符串；据此定位任意客户端 bundle 源码。
+3. **隔离功能测试**：把宿主 `lib/index.js` 复制到插件目录内加 `export` 后缀，用 node 直接 import 跑 `analyzeBlocks`/`renderMermaidCached`，不依赖应用。
+4. **请求级日志**：宿主路由写 `D:/usermind/vizcb-debug.log`（客户端随请求上报版本号），一次重启+一次操作=铁证。
+
+---
+
+## 五、教训总结
+
+- **API 契约以真实源码为准**：字段名、返回形状（轻量 vs 快照）、生命周期行为，都要查实现，不能猜。
+- **环境差异**：PowerShell 5.1 vs 7 的编码行为；浏览器/Node/应用解析器的宽容度差异。
+- **进程架构决定调试路径**：宿主、渲染器、页面的生命周期各自独立，改代码后要知道"谁重载了、谁还驻留"。
+- **诊断优先于猜测**：版本徽标、请求日志、隔离测试，让数据说话。
