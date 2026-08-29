@@ -8,6 +8,10 @@
 
 DeepSeek Harness 可视化插件：把模型回答中的 ````svg` / ````html` / ````mermaid` 代码块渲染为消息底部的内嵌图表卡片。mermaid 为宿主端渲染（mermaid + svgdom），**运行时零网络外联**（无 CDN、无 iframe 脚本）；依赖由安装时自动拉取（仓库不内置 node_modules）。
 
+## 效果预览
+
+![vizcb-codeblock-visualizer 效果](screenshot.png)
+
 ## 功能
 
 - **SVG 卡片**：消毒注入 + 宽松校验（与渲染路径一致），轻微 XML 瑕疵也能正常渲染
