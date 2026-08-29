@@ -20,7 +20,7 @@ DeepSeek Harness 可视化插件：把模型回答中的 ````svg` / ````html` / 
 
 ## 安装
 
-**前提**：目标 profile 为标准 DSH web 应用栈（含 `dsh-web-app` 的 turnTail 槽位，以及 `systemPrompt` / `webServer` / `sessionQuery` 服务）。桌面版 2.0.4 已验证。
+**前提**：目标 profile 为标准 DSH web 应用栈（含 `dsh-web-app` 的 turnTail 槽位，以及 `systemPrompt` / `webServer` / `sessionQuery` 服务）。桌面版 2.0.4 已验证；独立 `dsh web`（web profile）v1.4.1 实测可用。
 
 ### 方式 A —— 一键安装脚本（推荐）
 
@@ -104,6 +104,7 @@ vizcb-codeblock-visualizer/
 
 ## 版本历史
 
+- 安装脚本/文档：`install-vizcb.ps1` 加 UTF-8 BOM（无 BOM 时中文注释在 Windows PowerShell 5.1 下被按 ANSI 解析导致脚本解析崩溃）；README 补充独立 `dsh web`（web profile）实测可用
 - 1.0.0 动态插件移植为 bundle（路由 fetch）
 - 1.1.0 加固：SVG 校验 / 图注标题 / 复制缩放 / mermaid / 配置化 / 缓存 / 自检 / 限流 / 网格 / i18n
 - 1.2.0 全屏灯箱放大

@@ -1,4 +1,4 @@
-# install-vizcb.ps1 - 一键安装 vizcb-codeblock-visualizer 到 DSH profile
+﻿# install-vizcb.ps1 - 一键安装 vizcb-codeblock-visualizer 到 DSH profile
 # 用法:  powershell -ExecutionPolicy Bypass -File install-vizcb.ps1
 #        powershell -ExecutionPolicy Bypass -File install-vizcb.ps1 -ProfileName web
 # 说明: 自动复制插件目录 -> 写入 dsh.profile.bundles -> 缺依赖时 npm install -> 校验
