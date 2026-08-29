@@ -1,5 +1,11 @@
 # vizcb-codeblock-visualizer
 
+![version](https://img.shields.io/badge/version-1.4.1-4F8CFF)
+![license](https://img.shields.io/badge/license-MIT-34D399)
+![ds desktop](https://img.shields.io/badge/DSH%20Desktop-2.0.4%20verified-F59E0B)
+![mermaid](https://img.shields.io/badge/mermaid-host%20render-4F8CFF)
+![install](https://img.shields.io/badge/install-git%20dependency%20or%20script-9CA3AF)
+
 DeepSeek Harness 可视化插件：把模型回答中的 ````svg` / ````html` / ````mermaid` 代码块渲染为消息底部的内嵌图表卡片。mermaid 为宿主端渲染（mermaid + svgdom），**运行时零网络外联**（无 CDN、无 iframe 脚本）；依赖由安装时自动拉取（仓库不内置 node_modules）。
 
 ## 功能
