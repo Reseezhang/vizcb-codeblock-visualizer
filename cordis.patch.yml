@@ -9,6 +9,8 @@
 #       retryDelayMs: 2000
 #       minSvgHeight: 120
 #       mermaidEnabled: true
+#       mermaidTextColor: "#E5E7EB"
+#       mermaidLineColor: "#4F8CFF"
 #       htmlAllowScripts: false
 - insert:
     - id: vizcb-codeblock-visualizer

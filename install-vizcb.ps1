@@ -2,12 +2,19 @@
 # 用法:  powershell -ExecutionPolicy Bypass -File install-vizcb.ps1
 #        powershell -ExecutionPolicy Bypass -File install-vizcb.ps1 -ProfileName web
 # 说明: 自动复制插件目录 -> 写入 dsh.profile.bundles -> 缺依赖时 npm install -> 校验
+# 兼容两种布局：完整包（插件在 vizcb-codeblock-visualizer/ 子目录）与 git 克隆（插件在仓库根目录）。
 param(
   [string]$ProfileName = "desktop",
-  [string]$SourceDir = (Join-Path $PSScriptRoot "vizcb-codeblock-visualizer")
+  [string]$SourceDir = ""
 )
 $ErrorActionPreference = "Stop"
 $enc = New-Object System.Text.UTF8Encoding($false)   # 无 BOM，避免应用 JSON 解析崩溃
+
+if ([string]::IsNullOrEmpty($SourceDir)) {
+  $sub = Join-Path $PSScriptRoot "vizcb-codeblock-visualizer"
+  if (Test-Path (Join-Path $sub "package.json")) { $SourceDir = $sub }
+  else { $SourceDir = $PSScriptRoot }
+}
 
 $profileRoot = Join-Path $HOME (".dsh\profiles\" + $ProfileName)
 if (-not (Test-Path $profileRoot)) { Write-Error "找不到 profile: $profileRoot"; exit 1 }

@@ -1,12 +1,12 @@
 # vizcb-codeblock-visualizer
 
-DeepSeek Harness 可视化插件：把模型回答中的 ````svg` / ````html` / ````mermaid` 代码块渲染为消息底部的内嵌图表卡片。运行时依赖（mermaid/svgdom 等）已内置，**插件本体零网络外联**（mermaid 为宿主端渲染）。
+DeepSeek Harness 可视化插件：把模型回答中的 ````svg` / ````html` / ````mermaid` 代码块渲染为消息底部的内嵌图表卡片。mermaid 为宿主端渲染（mermaid + svgdom），**运行时零网络外联**（无 CDN、无 iframe 脚本）；依赖由安装时自动拉取（仓库不内置 node_modules）。
 
 ## 功能
 
 - **SVG 卡片**：消毒注入 + 宽松校验（与渲染路径一致），轻微 XML 瑕疵也能正常渲染
 - **HTML 卡片**：空 sandbox iframe（默认禁脚本；`htmlAllowScripts` 可开 iframe 内脚本）
-- **Mermaid 卡片**：宿主端渲染（mermaid + svgdom → SVG），24 种方言别名（flowchart/graph/sequenceDiagram…），箭头可见性已增强
+- **Mermaid 卡片**：宿主端渲染（mermaid + svgdom → SVG），24 种方言别名（flowchart/graph/sequenceDiagram…）；深色主题下文字/连线/箭头按宿主色板提亮（文字 `#E5E7EB`、连线 `#4F8CFF`），节点文字超出时自动扩宽矩形 + viewBox 自适应
 - **图注标题**：自动提取代码块上方的标题行
 - **交互**：复制源码 / 全屏灯箱放大（Esc、点背景、按钮关闭）/ **保存导出**（原生对话框自选位置与格式：PNG / SVG；HTML 导出源文件）
 - **失败可见化**：未渲染时显示原因通知条
@@ -14,7 +14,7 @@ DeepSeek Harness 可视化插件：把模型回答中的 ````svg` / ````html` / 
 
 ## 安装
 
-**前提**：目标 profile 为标准 DSH web 应用栈（含 `dsh-web-app` 的 turnTail 槽位，以及 `systemPrompt` / `webServer` / `sessionQuery` 服务）。桌面版 2.0.3 已验证。
+**前提**：目标 profile 为标准 DSH web 应用栈（含 `dsh-web-app` 的 turnTail 槽位，以及 `systemPrompt` / `webServer` / `sessionQuery` 服务）。桌面版 2.0.4 已验证。
 
 ### 方式 A —— 一键安装脚本（推荐）
 
@@ -34,12 +34,31 @@ powershell -ExecutionPolicy Bypass -File install-vizcb.ps1 -ProfileName web
 3. （若未带 node_modules）在插件目录执行 `npm install`
 4. 重启
 
-### 方式 C —— GitHub tarball 依赖（等 dsh CLI 修复后）
+### 方式 C —— 作为 npm/git 依赖安装
+
+在目标 profile 的 `package.json` 中把插件加入依赖并注册 bundle，然后执行 `pnpm install`（桌面版自带 pnpm，或直接用 `dsh plugin` 命令转发）：
 
 ```jsonc
-// profile package.json dependencies:
-"vizcb-codeblock-visualizer": "https://codeload.github.com/Reseezhang/vizcb-codeblock-visualizer/tar.gz/<commit>"
+// ~/.dsh/profiles/<name>/package.json
+{
+  "dependencies": {
+    "vizcb-codeblock-visualizer": "github:Reseezhang/vizcb-codeblock-visualizer"
+  },
+  "dsh": {
+    "profile": {
+      "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "vizcb-codeblock-visualizer"]
+    }
+  }
+}
 ```
+
+或者用 dsh CLI 一行安装依赖（随后仍需把 `"vizcb-codeblock-visualizer"` 追加进上述 bundles 数组）：
+
+```sh
+dsh plugin --profile <name> add github:Reseezhang/vizcb-codeblock-visualizer
+```
+
+> 依赖（mermaid/jsdom/dompurify/svgdom）由 npm/pnpm 从 registry 自动拉取，仓库不内置 node_modules。
 
 ## 配置
 
@@ -53,6 +72,8 @@ powershell -ExecutionPolicy Bypass -File install-vizcb.ps1 -ProfileName web
     retryDelayMs: 2000        # 空结果重试间隔
     minSvgHeight: 120         # SVG 无 viewBox 时的兜底高度
     mermaidEnabled: true      # 是否渲染 mermaid
+    mermaidTextColor: "#E5E7EB"  # mermaid 深色主题文字/标签颜色（对齐宿主色板）
+    mermaidLineColor: "#4F8CFF"  # mermaid 连线/箭头/生命线颜色
     htmlAllowScripts: false   # HTML iframe 是否允许脚本（安全权衡，默认关）
 ```
 
@@ -87,5 +108,6 @@ vizcb-codeblock-visualizer/
 - 1.3.3 箭头可见性增强
 - 1.3.4 SVG 校验对齐渲染路径
 - 1.4.0 保存导出（PNG/SVG/HTML）
+- 1.4.1 修复深色主题渲染（dark 标志丢失导致浅色主题）；mermaid 配色对齐宿主色板（文字 `#E5E7EB`、连线/箭头 `#4F8CFF`）；节点文字自适应（自动扩宽矩形 + viewBox）
 
 完整踩坑历程见 [DEVELOPMENT.md](./DEVELOPMENT.md)。

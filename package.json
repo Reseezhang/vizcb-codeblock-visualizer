@@ -1,7 +1,7 @@
 {
     "name":  "vizcb-codeblock-visualizer",
     "description":  "Render svg/html/mermaid code blocks as diagram cards (v3: host-side mermaid rendering).",
-    "version":  "1.4.0",
+    "version":  "1.4.1",
     "license":  "MIT",
     "type":  "module",
     "main":  "lib/index.js",
