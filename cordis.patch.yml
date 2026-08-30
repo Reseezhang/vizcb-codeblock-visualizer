@@ -16,6 +16,11 @@
 #       htmlAllowScripts: false
 #       debugLog: false
 #       mermaidRateMax: 30
+#       previewEnabled: true
+#       workspaceRoot: ""            # 留空 = sandboxPolicy.workspaceRoot → 进程 cwd
+#       previewMaxBytes: 5242880
+#       previewPollMs: 3000
+#       maxFiles: 12
 - insert:
     - id: vizcb-codeblock-visualizer
       name: 'vizcb-codeblock-visualizer'

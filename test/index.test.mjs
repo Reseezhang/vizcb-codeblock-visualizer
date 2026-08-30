@@ -2,6 +2,10 @@
 // 运行：npm install && node --test test/
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
+import http from "node:http";
+import os from "node:os";
+import path from "node:path";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import {
   resolveConfig,
   analyzeBlocks,
@@ -10,6 +14,12 @@ import {
   estimateLabelWidth,
   extractTitle,
   decodeBase64Url,
+  parsePresentDirective,
+  extractPresentDirectives,
+  resolvePresentedPath,
+  buildFiles,
+  langOfExt,
+  handlePreviewFileRequest,
   shutdownMermaidWorker,
   PLUGIN_VERSION,
 } from "../lib/index.js";
@@ -17,7 +27,7 @@ import {
 after(() => { shutdownMermaidWorker(); }); // 终止 worker，让测试进程正常退出
 
 test("version reads package.json", () => {
-  assert.equal(PLUGIN_VERSION, "1.5.0");
+  assert.equal(PLUGIN_VERSION, "1.6.0");
 });
 
 test("config defaults", () => {
@@ -26,6 +36,8 @@ test("config defaults", () => {
   assert.equal(cfg.debugLog, false);
   assert.equal(cfg.canvasBg, "#0F172A");
   assert.equal(cfg.mermaidRateMax, 30);
+  assert.equal(cfg.previewEnabled, true);
+  assert.equal(cfg.previewMaxBytes, 5 * 1024 * 1024);
 });
 
 test("analyzeBlocks extracts svg block with title", () => {
@@ -79,4 +91,116 @@ test("pure helpers", () => {
   assert.ok(estimateLabelWidth("开始", 16) > 20);
   assert.equal(extractTitle("标题\n\n```svg\nx\n```", 4), "标题");
   assert.equal(decodeBase64Url(Buffer.from("graph TD;A-->B").toString("base64url")), "graph TD;A-->B");
+});
+
+// ── present-files（可预览文件）──────────────────────────────────────
+
+test("parsePresentDirective handles list markers/comments/blank lines", () => {
+  const dir = "# 说明注释\n\n- report.html\n  - ../outside.html\n\n* assets/logo.png\nC:\\abs\\file.txt\n";
+  const paths = parsePresentDirective(dir);
+  assert.deepEqual(paths, ["report.html", "../outside.html", "assets/logo.png", "C:\\abs\\file.txt"]);
+});
+
+test("extractPresentDirectives finds present-files fences at line start", () => {
+  const text = "回复内容\n\n```present-files\n- report.html\n- result.png\n```\n\n结束";
+  const paths = extractPresentDirectives(text);
+  assert.deepEqual(paths, ["report.html", "result.png"]);
+  // 不在行首的围栏不识别
+  assert.deepEqual(extractPresentDirectives("文字```present-files\nx\n```"), []);
+});
+
+test("resolvePresentedPath enforces workspace containment", () => {
+  const root = path.resolve("C:/ws");
+  const inside = resolvePresentedPath("sub/report.html", root);
+  assert.ok(inside.inside);
+  assert.equal(inside.rel, path.join("sub", "report.html"));
+  const outside = resolvePresentedPath("../secret.txt", root);
+  assert.equal(outside.inside, false);
+  const absOutside = resolvePresentedPath(path.resolve("D:/other/evil.html"), root);
+  assert.equal(absOutside.inside, false);
+  assert.equal(resolvePresentedPath("", root), null);
+});
+
+test("langOfExt buckets file types", () => {
+  assert.equal(langOfExt(".html"), "html");
+  assert.equal(langOfExt(".PNG"), "image");
+  assert.equal(langOfExt(".css"), "css");
+  assert.equal(langOfExt(".js"), "js");
+  assert.equal(langOfExt(".md"), "text");
+  assert.equal(langOfExt(".exe"), "other");
+});
+
+test("buildFiles validates real files inside workspace", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "vizcb-test-"));
+  try {
+    await writeFile(path.join(root, "report.html"), "<h1>hi</h1>");
+    await writeFile(path.join(root, "logo.png"), "PNG");
+    await writeFile(path.join(root, "secret.txt"), "top secret");
+    const { items, invalid } = await buildFiles(
+      ["report.html", "missing.html", "../secret.txt", "logo.png"],
+      resolveConfig({ maxFiles: 12 }),
+      root,
+    );
+    assert.deepEqual(items.map((i) => i.rel), ["report.html", "logo.png"]);
+    assert.equal(items[0].lang, "html");
+    assert.equal(items[1].lang, "image");
+    assert.deepEqual(invalid.map((i) => i.reason), ["not-found", "outside-workspace"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("handlePreviewFileRequest serves contained files and blocks traversal", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "vizcb-test-"));
+  const token = "tok-abc123";
+  const cfg = resolveConfig({ previewMaxBytes: 1024 * 1024 });
+  const server = http.createServer((req, res) => {
+    handlePreviewFileRequest(req, res, cfg, root, token).catch(() => { res.statusCode = 500; res.end(); });
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const base = "http://127.0.0.1:" + server.address().port;
+  try {
+    await writeFile(path.join(root, "a b.html"), "<html>hello</html>");
+    await writeFile(path.join(root, "secret.txt"), "top secret");
+    const rel = encodeURIComponent("a b.html");
+    const res = await fetch(base + "/vizcb/p/" + token + "/" + rel);
+    assert.equal(res.status, 200);
+    assert.equal((await res.text()).trim(), "<html>hello</html>");
+    // meta 轮询
+    const meta = await (await fetch(base + "/vizcb/p/" + token + "/meta?p=" + encodeURIComponent("a b.html"))).json();
+    assert.equal(meta.exists, true);
+    assert.ok(meta.mtimeMs > 0);
+    assert.equal(meta.size, "<html>hello</html>".length);
+    // 越界（编码后的 ../）必须被拒
+    const trav = await fetch(base + "/vizcb/p/" + token + "/..%2Fsecret.txt");
+    assert.equal(trav.status, 403);
+    // 错误 token
+    const badToken = await fetch(base + "/vizcb/p/wrong-token/secret.txt");
+    assert.equal(badToken.status, 403);
+    // 不存在文件
+    const missing = await fetch(base + "/vizcb/p/" + token + "/nope.html");
+    assert.equal(missing.status, 404);
+  } finally {
+    await new Promise((r) => server.close(r));
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("handlePreviewFileRequest enforces size cap", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "vizcb-test-"));
+  const token = "tok-size";
+  const cfg = resolveConfig({ previewMaxBytes: 32 });
+  const server = http.createServer((req, res) => {
+    handlePreviewFileRequest(req, res, cfg, root, token).catch(() => { res.statusCode = 500; res.end(); });
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const base = "http://127.0.0.1:" + server.address().port;
+  try {
+    await writeFile(path.join(root, "big.html"), "x".repeat(100));
+    const res = await fetch(base + "/vizcb/p/" + token + "/big.html");
+    assert.equal(res.status, 413);
+  } finally {
+    await new Promise((r) => server.close(r));
+    await rm(root, { recursive: true, force: true });
+  }
 });

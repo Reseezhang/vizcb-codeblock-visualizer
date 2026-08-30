@@ -10,10 +10,10 @@
 
 | 端 | 职责 |
 |---|---|
-| **Host**（Node 进程） | ① 注入「可视化输出规范」提示词 section（固定色板、圆角矩形、≤6 节点、viewBox 规则）② `POST /vizcb/read-turn`：读取回合助手消息、提取行首围栏代码块、返回 `{blocks, reason}` ③ `POST /vizcb/mermaid.svg`：mermaid 在**独立 worker_threads** 渲染为 SVG ④ `GET /vizcb/debug`：自检状态 |
-| **Client**（浏览器） | 挂载 `conversation.chat.turnTail` 链位渲染卡片；SVG 消毒内联 / HTML 空 sandbox iframe / mermaid fetch+inline；全屏灯箱放大；复制 / 保存导出；失败原因通知条 |
+| **Host**（Node 进程） | ① 注入「可视化输出规范」提示词 section（固定色板、圆角矩形、≤6 节点、viewBox 规则）+「可预览文件展示规范」（present-files 指令）② `POST /vizcb/read-turn`：读取回合助手消息、提取行首围栏代码块、解析 present-files 并校验路径、返回 `{blocks, reason, files}` ③ `POST /vizcb/mermaid.svg`：mermaid 在**独立 worker_threads** 渲染为 SVG ④ `GET /vizcb/p/<token>/…`：工作区内文件预览（含 meta 轮询）⑤ `POST /vizcb/reveal`：系统文件管理器定位 ⑥ `GET /vizcb/debug`：自检状态 |
+| **Client**（浏览器） | 挂载 `conversation.chat.turnTail` 链位渲染卡片；SVG 消毒内联 / HTML 空 sandbox iframe / mermaid fetch+inline；全屏灯箱放大；复制 / 保存导出；失败原因通知条；present-files → 预览面板（iframe/大图/源码）+ 文件卡片（切换/复制路径/打开目录/mtime 轮询刷新） |
 
-**安全边界**：SVG/mermaid 输出**宿主端 DOMPurify 消毒**（剥 script/on*/javascript:）后才返回客户端；客户端渲染前再消毒一次（纵深防御）；HTML 走 `sandbox=""` iframe（禁脚本）；mermaid 宿主渲染零外联零脚本。
+**安全边界**：SVG/mermaid 输出**宿主端 DOMPurify 消毒**（剥 script/on*/javascript:）后才返回客户端；客户端渲染前再消毒一次（纵深防御）；HTML 走 `sandbox=""` iframe（禁脚本）；mermaid 宿主渲染零外联零脚本；**预览文件**只允许工作区内的真实文件（resolve + `path.relative` 包含性校验防 `../` 越界），经不可猜 token 前缀暴露，预览 iframe 仅 `sandbox="allow-scripts"`（无 allow-same-origin，模型 HTML 是唯一隔离层）。
 
 ---
 
@@ -34,6 +34,7 @@
 | **1.4.0** | 导出 | 保存为图片：原生对话框自选位置与格式（PNG/SVG），HTML 导出源文件 |
 | **1.4.1** | 视觉 | 修复深色主题渲染（dark 标志丢失导致浅色主题）；mermaid 配色对齐宿主色板；节点文字自适应（扩宽矩形 + viewBox） |
 | **1.5.0** | 评审落地 | mermaid 移入独立 worker_threads（不污染宿主 globalThis）；SVG/mermaid 宿主端 DOMPurify 消毒；mermaid 全局限流 + 同 key 在途去重 + 串行化；readTurn 重试缓存修复；debugLog 配置化；`injectBootGlobals` 转义 `</script>`；主题适配（canvasBg + mermaidDark 自动检测）；灯箱同套 SVG 校验；`node --test` 用例 + GitHub Actions CI；installer 按 files 白名单复制 |
+| **1.6.0** | 文件预览 | WorkBuddy html-preview-spec 落地：`present-files` 指令 → 宿主校验（resolve + 包含性）→ 同源 `/vizcb/p/<token>/` 预览（token/越界/大小上限/no-store）→ 客户端预览面板 + 文件卡片（切换/复制路径/`explorer /select` 打开目录/mtime 轮询刷新/关闭后不自动弹开）；提示词新增"可预览文件展示规范" |
 
 ---
 

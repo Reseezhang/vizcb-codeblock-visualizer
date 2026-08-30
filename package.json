@@ -1,7 +1,7 @@
 {
     "name":  "vizcb-codeblock-visualizer",
-    "description":  "Render svg/html/mermaid code blocks as diagram cards (v5: worker-isolated mermaid, host-side DOMPurify, configurable theme).",
-    "version":  "1.5.0",
+    "description":  "Render svg/html/mermaid code blocks as diagram cards + present-files workspace preview (v6: worker-isolated mermaid, host-side DOMPurify, file preview panel).",
+    "version":  "1.6.0",
     "license":  "MIT",
     "type":  "module",
     "main":  "lib/index.js",
