@@ -10,10 +10,10 @@
 
 | 端 | 职责 |
 |---|---|
-| **Host**（Node 进程） | ① 注入「可视化输出规范」提示词 section（固定色板、圆角矩形、≤6 节点、viewBox 规则）② `POST /vizcb/read-turn`：读取回合助手消息、提取行首围栏代码块、返回 `{blocks, reason}` ③ `POST /vizcb/mermaid.svg`：mermaid+svgdom 宿主渲染为 SVG ④ `GET /vizcb/debug`：自检状态 |
-| **Client**（浏览器） | 挂载 `conversation.chat.turnTail` 链位渲染卡片；SVG 消毒内联 / HTML 空 sandbox iframe / mermaid `<img>`-less 内联；全屏灯箱放大；复制 / 保存导出；失败原因通知条 |
+| **Host**（Node 进程） | ① 注入「可视化输出规范」提示词 section（固定色板、圆角矩形、≤6 节点、viewBox 规则）② `POST /vizcb/read-turn`：读取回合助手消息、提取行首围栏代码块、返回 `{blocks, reason}` ③ `POST /vizcb/mermaid.svg`：mermaid 在**独立 worker_threads** 渲染为 SVG ④ `GET /vizcb/debug`：自检状态 |
+| **Client**（浏览器） | 挂载 `conversation.chat.turnTail` 链位渲染卡片；SVG 消毒内联 / HTML 空 sandbox iframe / mermaid fetch+inline；全屏灯箱放大；复制 / 保存导出；失败原因通知条 |
 
-**安全边界**：SVG 消毒（剥 script/on*/javascript:）后内联；HTML 走 `sandbox=""` iframe（禁脚本）；mermaid 宿主渲染零外联零脚本。
+**安全边界**：SVG/mermaid 输出**宿主端 DOMPurify 消毒**（剥 script/on*/javascript:）后才返回客户端；客户端渲染前再消毒一次（纵深防御）；HTML 走 `sandbox=""` iframe（禁脚本）；mermaid 宿主渲染零外联零脚本。
 
 ---
 
@@ -32,6 +32,8 @@
 | **1.3.3** | 视觉 | 箭头可见性增强（亮蓝 2.4px 边 + 1.5× 箭头 + 边标签提亮） |
 | **1.3.4** | 一致性 | SVG 校验改用宽松 HTML 解析，与渲染路径对齐（消除"缩略图报错、灯箱正常"） |
 | **1.4.0** | 导出 | 保存为图片：原生对话框自选位置与格式（PNG/SVG），HTML 导出源文件 |
+| **1.4.1** | 视觉 | 修复深色主题渲染（dark 标志丢失导致浅色主题）；mermaid 配色对齐宿主色板；节点文字自适应（扩宽矩形 + viewBox） |
+| **1.5.0** | 评审落地 | mermaid 移入独立 worker_threads（不污染宿主 globalThis）；SVG/mermaid 宿主端 DOMPurify 消毒；mermaid 全局限流 + 同 key 在途去重 + 串行化；readTurn 重试缓存修复；debugLog 配置化；`injectBootGlobals` 转义 `</script>`；主题适配（canvasBg + mermaidDark 自动检测）；灯箱同套 SVG 校验；`node --test` 用例 + GitHub Actions CI；installer 按 files 白名单复制 |
 
 ---
 
@@ -80,8 +82,8 @@
 
 1. **会话日志解码**：`~/.dsh/sessions/<workspace>/session-<id>/session.jsonl.zstd` 是 **每行一个 zstd 帧**，遍历帧魔数 `28 B5 2F FD` 逐帧解压、按行切分，得到完整事件流（turn/step/assistant-message/tool-call…）。
 2. **asar 索引解析**：`app.asar` 文件头 = 4 字节 pickle + 3 个 uint32 尺寸字段，JSON 索引从偏移 16 开始，offset 是字符串；据此定位任意客户端 bundle 源码。
-3. **隔离功能测试**：把宿主 `lib/index.js` 复制到插件目录内加 `export` 后缀，用 node 直接 import 跑 `analyzeBlocks`/`renderMermaidCached`，不依赖应用。
-4. **请求级日志**：宿主路由写 `D:/usermind/vizcb-debug.log`（客户端随请求上报版本号），一次重启+一次操作=铁证。
+3. **隔离功能测试**：`lib/index.js` 导出纯函数（`analyzeBlocks`/`renderMermaidCached`/`sanitizeSvgText`…），`npm install && node --test test/` 直接 import 跑通（CI 同款），不依赖应用。
+4. **请求级日志**：配置 `debugLog: true` 时宿主路由写 `os.tmpdir()/vizcb-debug.log`（客户端随请求上报版本号），一次重启+一次操作=铁证。
 
 ---
 

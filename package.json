@@ -1,7 +1,7 @@
 {
     "name":  "vizcb-codeblock-visualizer",
-    "description":  "Render svg/html/mermaid code blocks as diagram cards (v3: host-side mermaid rendering).",
-    "version":  "1.4.1",
+    "description":  "Render svg/html/mermaid code blocks as diagram cards (v5: worker-isolated mermaid, host-side DOMPurify, configurable theme).",
+    "version":  "1.5.0",
     "license":  "MIT",
     "type":  "module",
     "main":  "lib/index.js",
@@ -29,9 +29,17 @@
     "files":  [
                   "lib/index.js",
                   "lib/client.js",
+                  "lib/mermaid-worker.mjs",
                   "cordis.patch.yml",
                   "README.md"
               ],
+    "repository":  {
+                       "type":  "git",
+                       "url":  "git+https://github.com/Reseezhang/vizcb-codeblock-visualizer.git"
+                   },
+    "bugs":  {
+                 "url":  "https://github.com/Reseezhang/vizcb-codeblock-visualizer/issues"
+             },
     "dependencies":  {
                          "dompurify":  "^3.4.13",
                          "jsdom":  "^30.0.1",

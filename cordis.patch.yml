@@ -11,7 +11,11 @@
 #       mermaidEnabled: true
 #       mermaidTextColor: "#E5E7EB"
 #       mermaidLineColor: "#4F8CFF"
+#       canvasBg: "#0F172A"
+#       mermaidDark: null
 #       htmlAllowScripts: false
+#       debugLog: false
+#       mermaidRateMax: 30
 - insert:
     - id: vizcb-codeblock-visualizer
       name: 'vizcb-codeblock-visualizer'

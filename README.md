@@ -1,12 +1,12 @@
 # vizcb-codeblock-visualizer
 
-![version](https://img.shields.io/badge/version-1.4.1-4F8CFF)
+![version](https://img.shields.io/badge/version-1.5.0-4F8CFF)
 ![license](https://img.shields.io/badge/license-MIT-34D399)
 ![ds desktop](https://img.shields.io/badge/DSH%20Desktop-2.0.4%20verified-F59E0B)
-![mermaid](https://img.shields.io/badge/mermaid-host%20render-4F8CFF)
+![mermaid](https://img.shields.io/badge/mermaid-host%20render%2Bworker-4F8CFF)
 ![install](https://img.shields.io/badge/install-git%20dependency%20or%20script-9CA3AF)
 
-DeepSeek Harness 可视化插件：把模型回答中的 ````svg` / ````html` / ````mermaid` 代码块渲染为消息底部的内嵌图表卡片。mermaid 为宿主端渲染（mermaid + svgdom），**运行时零网络外联**（无 CDN、无 iframe 脚本）；依赖由安装时自动拉取（仓库不内置 node_modules）。
+DeepSeek Harness 可视化插件：把模型回答中的 ````svg` / ````html` / ````mermaid` 代码块渲染为消息底部的内嵌图表卡片。mermaid 为宿主端渲染（mermaid + svgdom，**运行在独立 worker_threads**，不污染宿主进程），**运行时零网络外联**（无 CDN、无 iframe 脚本）；依赖由安装时自动拉取（仓库不内置 node_modules）。
 
 ## 效果预览
 
@@ -14,13 +14,13 @@ DeepSeek Harness 可视化插件：把模型回答中的 ````svg` / ````html` / 
 
 ## 功能
 
-- **SVG 卡片**：消毒注入 + 宽松校验（与渲染路径一致），轻微 XML 瑕疵也能正常渲染
+- **SVG 卡片**：宿主端 DOMPurify 消毒（剥 script / 事件属性 / javascript: 链接）+ 客户端宽松校验（与渲染路径一致），轻微 XML 瑕疵也能正常渲染
 - **HTML 卡片**：空 sandbox iframe（默认禁脚本；`htmlAllowScripts` 可开 iframe 内脚本）
-- **Mermaid 卡片**：宿主端渲染（mermaid + svgdom → SVG），24 种方言别名（flowchart/graph/sequenceDiagram…）；深色主题下文字/连线/箭头按宿主色板提亮（文字 `#E5E7EB`、连线 `#4F8CFF`），节点文字超出时自动扩宽矩形 + viewBox 自适应
+- **Mermaid 卡片**：宿主端渲染（mermaid + svgdom → SVG，**独立 worker_threads 隔离**），24 种方言别名（flowchart/graph/sequenceDiagram…）；深色主题下文字/连线/箭头按宿主色板提亮（文字 `#E5E7EB`、连线 `#4F8CFF`），节点文字超出时自动扩宽矩形 + viewBox 自适应；同一图的并发请求合并、结果内存缓存
 - **图注标题**：自动提取代码块上方的标题行
 - **交互**：复制源码 / 全屏灯箱放大（Esc、点背景、按钮关闭）/ **保存导出**（原生对话框自选位置与格式：PNG / SVG；HTML 导出源文件）
-- **失败可见化**：未渲染时显示原因通知条
-- **工程化**：配置化（8 块/条、64KB/块、重试间隔等）、per-seq 缓存、2s 自动重试、请求体限制 + 每会话限流、`/vizcb/debug` 自检、启动日志 `[vizcb] mounted vX`
+- **失败可见化**：未渲染时显示原因通知条；mermaid 渲染错误显示具体原因
+- **工程化**：配置化（8 块/条、64KB/块、重试间隔、画布底色、mermaid 深色模式等）、per-seq 缓存（可重试失败不缓存，重试真实重取）、2s 自动重试、请求体限制 + 每会话限流 + mermaid 全局限流、`/vizcb/debug` 自检、启动日志 `[vizcb] mounted vX`、`node --test` 用例 + GitHub Actions CI
 
 ## 安装
 
@@ -84,7 +84,11 @@ dsh plugin --profile <name> add github:Reseezhang/vizcb-codeblock-visualizer
     mermaidEnabled: true      # 是否渲染 mermaid
     mermaidTextColor: "#E5E7EB"  # mermaid 深色主题文字/标签颜色（对齐宿主色板）
     mermaidLineColor: "#4F8CFF"  # mermaid 连线/箭头/生命线颜色
+    canvasBg: "#0F172A"       # 卡片图区 / HTML / PNG 导出的画布底色
+    mermaidDark: null         # mermaid 主题：null=自动检测（data-theme/prefers-color-scheme）、true/false=强制
     htmlAllowScripts: false   # HTML iframe 是否允许脚本（安全权衡，默认关）
+    debugLog: false           # 请求级调试日志（开启写 os.tmpdir()/vizcb-debug.log）
+    mermaidRateMax: 30        # mermaid 渲染全局限流（滑动窗口内最大次数）
 ```
 
 ## 卸载 / 回滚
@@ -95,19 +99,24 @@ dsh plugin --profile <name> add github:Reseezhang/vizcb-codeblock-visualizer
 
 ```
 vizcb-codeblock-visualizer/
-├── package.json        # dsh.bundle.patch + dsh.client 声明
+├── package.json        # dsh.bundle.patch + dsh.client 声明 + files 白名单
 ├── cordis.patch.yml    # 挂载行 + 配置说明
 ├── README.md
 ├── DEVELOPMENT.md      # 完整开发历程与踩坑记录
 ├── LICENSE             # MIT
-├── install-vizcb.ps1   # 一键安装脚本
+├── install-vizcb.ps1   # 一键安装脚本（按 files 白名单复制）
+├── test/
+│   └── index.test.mjs  # node --test 冒烟测试
+├── .github/workflows/ci.yml
 └── lib/
-    ├── index.js        # Host：提示词 section + read-turn / mermaid.svg / debug 路由
-    └── client.js       # Client：turnTail 渲染 + 灯箱 + 保存导出（__ModuleLoader__ 格式）
+    ├── index.js        # Host：提示词 section + read-turn / mermaid.svg / debug 路由 + 消毒 + worker 管理
+    ├── client.js       # Client：turnTail 渲染 + 灯箱 + 保存导出（__ModuleLoader__ 格式）
+    └── mermaid-worker.mjs # Worker：mermaid + svgdom 隔离渲染
 ```
 
 ## 版本历史
 
+- 1.5.0 代码评审落地：mermaid 渲染移入独立 worker_threads（不再污染宿主 globalThis）；SVG/mermaid 输出宿主端 DOMPurify 消毒后才返回客户端；mermaid 渲染全局限流 + 同 key 在途去重 + 串行化；`readTurn` 重试缓存修复（可重试失败不再入缓存）；调试日志改配置项 `debugLog`（默认关）；`injectBootGlobals` 转义 `</script>`；主题适配（`canvasBg` 配置化 + mermaid dark 自动检测/可强制）；灯箱与卡片同套 SVG 校验；`node --test` 用例 + GitHub Actions CI；install-vizcb.ps1 按 files 白名单复制（排除 .git/test）
 - 安装脚本/文档：`install-vizcb.ps1` 加 UTF-8 BOM（无 BOM 时中文注释在 Windows PowerShell 5.1 下被按 ANSI 解析导致脚本解析崩溃）；README 补充独立 `dsh web`（web profile）实测可用
 - 1.0.0 动态插件移植为 bundle（路由 fetch）
 - 1.1.0 加固：SVG 校验 / 图注标题 / 复制缩放 / mermaid / 配置化 / 缓存 / 自检 / 限流 / 网格 / i18n
