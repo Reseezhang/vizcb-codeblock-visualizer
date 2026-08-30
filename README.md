@@ -1,6 +1,6 @@
 # vizcb-codeblock-visualizer
 
-![version](https://img.shields.io/badge/version-1.6.1-4F8CFF)
+![version](https://img.shields.io/badge/version-1.6.2-4F8CFF)
 ![license](https://img.shields.io/badge/license-MIT-34D399)
 ![ds desktop](https://img.shields.io/badge/DSH%20Desktop-2.0.4%20verified-F59E0B)
 ![mermaid](https://img.shields.io/badge/mermaid-host%20render%2Bworker-4F8CFF)
@@ -22,7 +22,7 @@ DeepSeek Harness 可视化插件：把模型回答中的 ````svg` / ````html` / 
 - **图注标题**：自动提取代码块上方的标题行
 - **交互**：复制源码 / 全屏灯箱放大（Esc、点背景、按钮关闭）/ **保存导出**（原生对话框自选位置与格式：PNG / SVG；HTML 导出源文件）
 - **失败可见化**：未渲染时显示原因通知条；mermaid 渲染错误显示具体原因
-- **可预览文件（present-files）**：模型在回复末尾输出 ````present-files` 块列出最终成品文件 → 第一行自动打开预览面板（HTML 走 `sandbox="allow-scripts"` iframe，图片大图，css/js/文本源码），其余排成文件卡片点击切换；**mtime 轮询**：文件被改写后预览自动整体刷新；卡片支持**复制完整路径**、**在系统文件管理器中显示**（宿主 `explorer /select`）；路径先 resolve + 包含性校验（防 `../` 越界），经随机 token 前缀暴露，单文件超 `previewMaxBytes` 拒绝；用户手动关闭预览后本次会话不再自动弹开；`hideSourceBlocks` 隐藏渲染过的源码围栏，只留渲染结果（源码仍可复制）
+- **可预览文件（present-files）**：模型在回复末尾输出 ````present-files` 块列出最终成品文件 → 第一行自动打开预览面板（HTML 走 `sandbox="allow-scripts"` iframe，图片大图，css/js/文本源码），其余排成文件卡片点击切换；**mtime 轮询**：文件被改写后预览自动整体刷新；卡片支持**复制完整路径**、**在系统文件管理器中显示**（宿主 `explorer /select`）；路径先 resolve + 包含性校验（防 `../` 越界），经随机 token 前缀暴露，单文件超 `previewMaxBytes` 拒绝；用户手动关闭预览后本次会话不再自动弹开；`hideSourceBlocks` 隐藏渲染过的源码围栏，只留渲染结果（源码仍可复制；渲染失败/被禁用的图**不会**被误藏，源码保留）
 - **工程化**：配置化（8 块/条、64KB/块、重试间隔、画布底色、mermaid 深色模式、预览上限等）、per-seq 缓存（可重试失败不缓存，重试真实重取）、2s 自动重试、请求体限制 + 每会话限流 + mermaid 全局限流、`/vizcb/debug` 自检、启动日志 `[vizcb] mounted vX`、`node --test` 15 用例 + GitHub Actions CI
 
 ## 安装
@@ -125,6 +125,7 @@ vizcb-codeblock-visualizer/
 
 ## 版本历史
 
+- 1.6.2 评审修订：移除 CSS 全局隐藏兜底（`pre:has(...)` 会吞掉渲染失败的图——卡片没出来源码已被藏，且选择器作用于整个页面的历史消息）——隐藏完全交给 JS 按"本条消息实际解析出的块"精确处理，并加容器查找三重守卫（深度上限 / 不越过 body / 命中数上限，异常即放弃隐藏）；`sanitizeSvgText` 消毒失败改为**失败即拒绝**（返回空，不再放行未消毒原文，非字符串结果同样拒绝）；mermaid GET 兼容通道补 `maxBlockChars` 上限（与 POST 一致）；worker 的 DOMPurify 绑定补注释说明（防御性保留，非笔误）
 - 1.6.1 只留渲染结果：`hideSourceBlocks`（默认开）隐藏本插件渲染过的源码围栏（svg/html/mermaid 及其方言别名 + present-files），仅当宿主确认解析出对应块时按解析语言精确隐藏（含流式渲染期间的 MutationObserver 补隐藏）；源码仍可通过卡片"复制"获取，普通代码块（js/py 等）不受影响
 - 1.6.0 可预览文件（WorkBuddy html-preview-spec 落地）：模型输出 ````present-files` 指令 → 宿主校验路径（resolve + 工作区包含性）→ 同源 `/vizcb/p/<token>/` 提供预览（随机 token + 越界防护 + 大小上限 + no-store）→ 客户端预览面板 + 文件卡片（点击切换 / 复制路径 / 打开所在目录 / mtime 轮询自动刷新 / 关闭后不再自动弹开）；iframe 仅 `sandbox="allow-scripts"`；提示词新增"可预览文件展示规范"（含"不复述内容"规则）
 - 1.5.0 代码评审落地：mermaid 渲染移入独立 worker_threads（不再污染宿主 globalThis）；SVG/mermaid 输出宿主端 DOMPurify 消毒后才返回客户端；mermaid 渲染全局限流 + 同 key 在途去重 + 串行化；`readTurn` 重试缓存修复（可重试失败不再入缓存）；调试日志改配置项 `debugLog`（默认关）；`injectBootGlobals` 转义 `</script>`；主题适配（`canvasBg` 配置化 + mermaid dark 自动检测/可强制）；灯箱与卡片同套 SVG 校验；`node --test` 用例 + GitHub Actions CI；install-vizcb.ps1 按 files 白名单复制（排除 .git/test）
