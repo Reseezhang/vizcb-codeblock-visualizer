@@ -35,6 +35,7 @@
 | **1.4.1** | 视觉 | 修复深色主题渲染（dark 标志丢失导致浅色主题）；mermaid 配色对齐宿主色板；节点文字自适应（扩宽矩形 + viewBox） |
 | **1.5.0** | 评审落地 | mermaid 移入独立 worker_threads（不污染宿主 globalThis）；SVG/mermaid 宿主端 DOMPurify 消毒；mermaid 全局限流 + 同 key 在途去重 + 串行化；readTurn 重试缓存修复；debugLog 配置化；`injectBootGlobals` 转义 `</script>`；主题适配（canvasBg + mermaidDark 自动检测）；灯箱同套 SVG 校验；`node --test` 用例 + GitHub Actions CI；installer 按 files 白名单复制 |
 | **1.6.0** | 文件预览 | WorkBuddy html-preview-spec 落地：`present-files` 指令 → 宿主校验（resolve + 包含性）→ 同源 `/vizcb/p/<token>/` 预览（token/越界/大小上限/no-store）→ 客户端预览面板 + 文件卡片（切换/复制路径/`explorer /select` 打开目录/mtime 轮询刷新/关闭后不自动弹开）；提示词新增"可预览文件展示规范" |
+| **1.6.1** | 只留渲染 | `hideSourceBlocks`（默认开）隐藏本插件渲染过的源码围栏（svg/html/mermaid 方言别名 + present-files）：仅当宿主解析出对应块时按解析语言精确隐藏（CSS `:has` 先行 + JS 按 class/data-lang 匹配 + MutationObserver 覆盖流式渲染）；源码仍可经卡片"复制"获取 |
 
 ---
 

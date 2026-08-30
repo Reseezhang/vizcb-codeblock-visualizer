@@ -21,6 +21,7 @@
 #       previewMaxBytes: 5242880
 #       previewPollMs: 3000
 #       maxFiles: 12
+#       hideSourceBlocks: true        # 隐藏本插件渲染过的源码围栏，只留渲染结果
 - insert:
     - id: vizcb-codeblock-visualizer
       name: 'vizcb-codeblock-visualizer'

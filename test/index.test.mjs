@@ -27,7 +27,7 @@ import {
 after(() => { shutdownMermaidWorker(); }); // 终止 worker，让测试进程正常退出
 
 test("version reads package.json", () => {
-  assert.equal(PLUGIN_VERSION, "1.6.0");
+  assert.equal(PLUGIN_VERSION, "1.6.1");
 });
 
 test("config defaults", () => {
@@ -38,6 +38,7 @@ test("config defaults", () => {
   assert.equal(cfg.mermaidRateMax, 30);
   assert.equal(cfg.previewEnabled, true);
   assert.equal(cfg.previewMaxBytes, 5 * 1024 * 1024);
+  assert.equal(cfg.hideSourceBlocks, true);
 });
 
 test("analyzeBlocks extracts svg block with title", () => {
