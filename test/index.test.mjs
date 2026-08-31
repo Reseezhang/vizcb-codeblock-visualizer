@@ -28,7 +28,7 @@ import {
 after(() => { shutdownMermaidWorker(); }); // 终止 worker，让测试进程正常退出
 
 test("version reads package.json", () => {
-  assert.equal(PLUGIN_VERSION, "1.6.7");
+  assert.equal(PLUGIN_VERSION, "1.6.8");
 });
 
 test("config defaults", () => {
