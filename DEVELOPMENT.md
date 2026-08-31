@@ -59,6 +59,7 @@
 环境的 `pwsh` 实际是 **PowerShell 5.1**，`-Encoding utf8` 会写入 **UTF-8 BOM**。我写的所有文件带 BOM；应用用严格 `JSON.parse` 读 profile 的 `package.json` → `Unexpected token ''` → **启动崩溃循环**。而 `node require` 会自动剥 BOM，导致我的校验"通过"了。
 **连带损失**：应用恢复机制重写清单时，把之前就有热挂载问题的 mermaid 插件**整个清除**（目录+依赖）。
 **教训**：写 JSON 给严格解析器必须显式无 BOM（`UTF8Encoding($false)`）；写 .ps1 给 PS 5.1 反而**必须带 BOM**。
+**补充教训（1.6.3 踩坑）**：**读** UTF-8 文件也一样——PS 5.1 的 `Get-Content` 默认按 ANSI/GBK 解码，`Get-Content -Raw` 读含中文的 UTF-8 文件会把每个中文字符读成乱码，`-replace` 后 `WriteAllText` 写回即**整文件损坏**（lib/client.js 全部中文注释变乱码，靠 `git checkout` 恢复）。读写含非 ASCII 的文本一律用 `[System.IO.File]::ReadAllText / WriteAllText`（.NET 默认 UTF-8）；含引号/管道的命令参数改用 `git commit -F 文件`，避免 shell 引号转义。
 
 ### 5. `const` TDZ —— 运行时 ReferenceError
 `const MAX_BLOCKS` 声明在宿主工厂函数 `return` 之后 —— 函数执行到 return 就返回，const 永不初始化；`function` 声明会提升所以其他辅助函数没事。修复：常量移到 return 之前。
