@@ -1,6 +1,6 @@
 # vizcb-codeblock-visualizer
 
-![version](https://img.shields.io/badge/version-1.6.2-4F8CFF)
+![version](https://img.shields.io/badge/version-1.6.3-4F8CFF)
 ![license](https://img.shields.io/badge/license-MIT-34D399)
 ![ds desktop](https://img.shields.io/badge/DSH%20Desktop-2.0.4%20verified-F59E0B)
 ![mermaid](https://img.shields.io/badge/mermaid-host%20render%2Bworker-4F8CFF)
@@ -125,6 +125,7 @@ vizcb-codeblock-visualizer/
 
 ## 版本历史
 
+- 1.6.3 提示词规则：mermaid 节点/边标签含 `|`、引号、`<`、`>` 等特殊字符时用双引号包裹整个标签（`F["A | B"]`），`|` 是连接线标签定界符裸写会解析失败；`<br>` 用于标签内换行
 - 1.6.2 评审修订：移除 CSS 全局隐藏兜底（`pre:has(...)` 会吞掉渲染失败的图——卡片没出来源码已被藏，且选择器作用于整个页面的历史消息）——隐藏完全交给 JS 按"本条消息实际解析出的块"精确处理，并加容器查找三重守卫（深度上限 / 不越过 body / 命中数上限，异常即放弃隐藏）；`sanitizeSvgText` 消毒失败改为**失败即拒绝**（返回空，不再放行未消毒原文，非字符串结果同样拒绝）；mermaid GET 兼容通道补 `maxBlockChars` 上限（与 POST 一致）；worker 的 DOMPurify 绑定补注释说明（防御性保留，非笔误）
 - 1.6.1 只留渲染结果：`hideSourceBlocks`（默认开）隐藏本插件渲染过的源码围栏（svg/html/mermaid 及其方言别名 + present-files），仅当宿主确认解析出对应块时按解析语言精确隐藏（含流式渲染期间的 MutationObserver 补隐藏）；源码仍可通过卡片"复制"获取，普通代码块（js/py 等）不受影响
 - 1.6.0 可预览文件（WorkBuddy html-preview-spec 落地）：模型输出 ````present-files` 指令 → 宿主校验路径（resolve + 工作区包含性）→ 同源 `/vizcb/p/<token>/` 提供预览（随机 token + 越界防护 + 大小上限 + no-store）→ 客户端预览面板 + 文件卡片（点击切换 / 复制路径 / 打开所在目录 / mtime 轮询自动刷新 / 关闭后不再自动弹开）；iframe 仅 `sandbox="allow-scripts"`；提示词新增"可预览文件展示规范"（含"不复述内容"规则）
