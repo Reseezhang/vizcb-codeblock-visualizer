@@ -38,6 +38,7 @@
 | **1.6.1** | 只留渲染 | `hideSourceBlocks`（默认开）隐藏本插件渲染过的源码围栏（svg/html/mermaid 方言别名 + present-files）：仅当宿主解析出对应块时按解析语言精确隐藏（JS 按 class/data-lang 匹配 + MutationObserver 覆盖流式渲染）；源码仍可经卡片"复制"获取 |
 | **1.6.2** | 评审修订 | ①移除 CSS 全局隐藏兜底：`pre:has(...)` 会吞掉渲染失败的图（卡片没出源码已被藏）且作用于整个页面的历史消息 → 隐藏完全交给 JS 精确处理，容器查找加三重守卫（深度 ≤12 / 不越过 body / 命中数 ≤24，异常即放弃隐藏保留源码）②`sanitizeSvgText` 消毒失败/非字符串结果 → 失败即拒绝（返回空，不放行未消毒原文）③mermaid GET 兼容通道补 `maxBlockChars`（与 POST 一致）④worker 的 DOMPurify 绑定补注释（mermaid strict 模式的防御性绑定，非笔误） |
 | **1.6.3** | 提示词 | mermaid 特殊字符规则：标签含 `|`/引号/`<`/`>` 时用双引号包裹整个标签（`F["A | B"]`），`|` 是连接线标签定界符裸写解析失败；`<br>` 换行 |
+| **1.6.5** | 提示词 | subgraph 标题含空格/括号/中文等时用双引号包裹（`subgraph "本地 PC 日志（规格）"`），标题内禁止 `[ ] { }`，节点必须另起一行（修 subgraph 标题带节点 → Lexical error） |
 
 ---
 
