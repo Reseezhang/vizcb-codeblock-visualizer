@@ -13,6 +13,7 @@ import {
   renderMermaidCached,
   estimateLabelWidth,
   extractTitle,
+  extractEventText,
   decodeBase64Url,
   parsePresentDirective,
   extractPresentDirectives,
@@ -27,7 +28,7 @@ import {
 after(() => { shutdownMermaidWorker(); }); // 终止 worker，让测试进程正常退出
 
 test("version reads package.json", () => {
-  assert.equal(PLUGIN_VERSION, "1.6.6");
+  assert.equal(PLUGIN_VERSION, "1.6.7");
 });
 
 test("config defaults", () => {
@@ -48,6 +49,27 @@ test("analyzeBlocks extracts svg block with title", () => {
   assert.equal(out.blocks.length, 1);
   assert.equal(out.blocks[0].lang, "svg");
   assert.equal(out.blocks[0].title, "前言");
+});
+
+test("extractEventText reconstructs fences for structured code blocks", () => {
+  const text = extractEventText({
+    data: { message: { content: [
+      { type: "text", text: "前言" },
+      { type: "code", language: "mermaid", text: "graph TD\n  A --> B" },
+      { type: "code", lang: "svg", text: "<svg viewBox=\"0 0 10 10\"><rect width=\"10\" height=\"10\"/></svg>" },
+      { type: "code", language: "lua", text: "local x = 1" }, // 非图表语言不动
+    ] } },
+  });
+  assert.ok(text.includes("```mermaid"), "mermaid fence reconstructed");
+  assert.ok(text.includes("```svg"), "svg fence reconstructed");
+  const out = analyzeBlocks(text, resolveConfig({}));
+  assert.deepEqual(out.blocks.map((b) => b.lang), ["mermaid", "svg"]);
+});
+
+test("extractEventText keeps raw fenced text as-is", () => {
+  const text = extractEventText({ data: { message: { content: ["前言\n\n```mermaid\ngraph TD;A-->B\n```"] } } });
+  assert.ok(text.includes("```mermaid"));
+  assert.equal(analyzeBlocks(text, resolveConfig({})).blocks.length, 1);
 });
 
 test("mermaid dialect aliases normalize to mermaid", () => {
