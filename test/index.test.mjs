@@ -6,6 +6,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { createRequire } from "node:module";
 import {
   resolveConfig,
   analyzeBlocks,
@@ -25,10 +26,13 @@ import {
   PLUGIN_VERSION,
 } from "../lib/index.js";
 
+const require = createRequire(import.meta.url);
+const PKG_VERSION = require("../package.json").version;
+
 after(() => { shutdownMermaidWorker(); }); // 终止 worker，让测试进程正常退出
 
 test("version reads package.json", () => {
-  assert.equal(PLUGIN_VERSION, "1.6.9");
+  assert.equal(PLUGIN_VERSION, PKG_VERSION);
 });
 
 test("config defaults", () => {
