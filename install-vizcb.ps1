@@ -1,4 +1,4 @@
-# 注意：本文件必须保存为「UTF-8 带 BOM」。Windows PowerShell 5.1 会把无 BOM 的文件
+﻿# 注意：本文件必须保存为「UTF-8 带 BOM」。Windows PowerShell 5.1 会把无 BOM 的文件
 # 按 ANSI 代码页解码，中文注释乱码后会引发语法错误（引号被吞、语句块失配）。
 # install-vizcb.ps1 - 一键安装 vizcb-codeblock-visualizer 到 DSH profile
 # 用法:  powershell -ExecutionPolicy Bypass -File install-vizcb.ps1

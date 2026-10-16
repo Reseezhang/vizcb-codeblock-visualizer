@@ -44,6 +44,7 @@
 | **1.6.8** | 提示词 | 输出位置规则：代码块紧跟引入句之后、禁止堆积回答末尾；每图前一句说明、图文交替分布（WorkBuddy 建议，解决"图来得晚/图文脱节"） |
 | **1.6.9** | 展示详情 | WorkBuddy vizcb-detail-spec 落地（升级灯箱而非新弹层）：渲染/源码 tab（记住上次）、滚轮缩放+拖拽平移、源码原始文本 textContent 直出+横向滚动+超长截断、下载按类型命名（.svg/.html/.mmd）、新窗口打开（svg/html）、遮罩拖动不误关+焦点管理；卡片按钮「放大」→「详情」 |
 | **1.7.0** | 呈现层 | 「绘制过程」不再外露：占位骨架 + 180ms 淡入，源码围栏在**检测到成对闭合围栏**时立即隐藏（与骨架同一轮提交），宿主始终读不到块则还原源码（`retryGiveUpMs` 默认 6s），重试改递增退避阶梯（400/800/2000ms），骨架占位高度按语言预留。同时修复 v1.6.1 起**一直失效**的源码隐藏（教训 10） |
+| **1.7.3** | 源码隐藏 | 三处宿主假设全不成立（类名被 CSS Modules 哈希 / 横幅对 svg·mermaid 只显示通用标签 / turnTail 是消息节点的**兄弟**）→ `domFences()` 恒返回空数组，`hideSourceBlocks` 从未生效。改为类名子串 + 正文特征识别 + 宿主解析结果**内容对账** + `data-chat-turn` 作用域收窄；顺带修掉「正文正则兜底误藏普通代码块」的反向 bug（教训 14） |
 
 ---
 
@@ -122,7 +123,34 @@ Uncaught Error: list slot "conversation.chat.turnTail" requires options.id
 
 `ctx.slots.register(options, Component)` 的**插槽种类**决定必填字段：`single` 无、`keyed` 要 `options.key`、`list` 要 `options.id`、`chain` 要 `options.select`；`order`/`label`/`priority`/`select`/`inject`/`children` 都是可选透传字段。这些常量可以直接从宿主 bundle 里读出来（见调试方法论第 7 条）：`"<slot 名>" requires options.` 就是校验点。本插件注册的 `conversation.chat.turnTail` 是 list 类，补上 `id: "vizcb-codeblock-visualizer"` 即可（旧宿主多传无害）。
 **教训**：① 客户端插件"注册成功"没有任何回执，`inject` 的插槽名不存在或注册抛错都是静默的，唯一可靠的信号是**宿主侧有没有收到客户端的请求**（本插件的 read-turn 就是活体探针）；② 报错一定要拿 console，不要让用户只描述症状 —— 同一句"还是代码块"在服务端没挂载、客户端没挂载、DOM 认不出三种情况下长得一模一样。
-**副产品**：本地 `file:` 依赖是**快照式**的，改了源码只重跑 `dsh plugin --profile desktop add file:<dir>` 不会刷新（pnpm 认为 spec 没变就复用），必须 `remove` 再 `add`（或改版本号）；客户端 bundle 由宿主按内容/修订号提供，页面 **Ctrl+Shift+R** 才会换到新的一份。
+**副产品**：本地 `file:` 依赖是**快照式**的，改了源码只重跑 `dsh plugin --profile desktop add file:<dir>` 不会刷新（pnpm 认为 spec 没变就复用），必须 `remove` 再 `add`（或改版本号）；客户端 bundle 由宿主按内容/修订号提供，页面 **Ctrl+Shift+R** 才会换到新的一份。（后者在 DSH 0.2.0-rc.2 上已被 `dsh-client-hmr` 取代，见教训 14 ⑥。）
+
+### 14. `hideSourceBlocks` 从未生效：三处「按惯例猜的」宿主假设（v1.7.3）
+现象：图表卡片正常渲染，但源码围栏一直留在正文里。排查要顺着链路**往上游走** —— 最后发现**入口就死了**：`domFences()` 恒返回空数组，下游（骨架时机、还原收口）改得再对也够不着。三处假设逐条被真机证伪：
+
+① **类名被 CSS Modules 哈希**：`block.querySelector("[data-code-block-banner] .infostring")` 永远不中。真实映射可以从宿主 bundle 里直接读出来（`dsh-web-frontend/dist/assets/index-*.js`）：
+
+```js
+{ block:"_block_7gxqk_4", bannerWrap:"_bannerWrap_7gxqk_24", banner:"_banner_7gxqk_24",
+  infostring:"_infostring_7gxqk_45", content:"_content_7gxqk_74", card:"_card_7gxqk_107" }
+```
+
+只有 `md-code-block` / `data-code-block-banner` / `data-code-block-content` 是字面量。
+
+② **横幅根本不显示语言**（即使选择器修对）：宿主 CodeToolbar 的标签是 `isLang(lang) ? lang : codeLabel`，而 `isLang` 基于 **shiki 语法集** —— `svg` / `mermaid` / `present-files` 都不在其中，只显示通用标签「代码块」（`js` 能显示是因为它在集合里）。真机实测：`label="代码块"` vs `label="js"`。**语言在真机 DOM 上读不到**，只能靠宿主解析结果的 `code` 做内容对账。
+
+③ **`turnTail` 是消息节点的兄弟**：祖先链实测为
+
+```
+div[data-slot=conversation.chat.turnTail] < div[data-turn-tail=6] < div[data-slot=conversation.chat.node]
+  < div.flowItem[data-chat-turn=6, data-chat-flow-kind=turn-tail] < div.column[data-chat-flow]
+```
+
+旧实现「向上找最近的含代码祖先」会越过消息停在会话滚动列 → `fences` 混进其它回合的块，与「本轮解析出的块」按序号对账必然错位（`targets` 恒空 → 不隐藏），命中数还会撞上 `fences.length > 24` 守卫直接放弃。（真机一个 turn 有 **116** 个带 `data-chat-turn` 的节点，所以任何「节点数不能多」的守卫都不成立。）
+
+修复：类名按 `[class*="infostring"], [class*="language"]` 子串匹配；读不到语言时按**正文特征**识别（`^<svg`／mermaid 关键字表，锚定开头）；确认阶段用 `blocks[i].code` 与 DOM 正文做**归一化内容对账**（与顺序、语言标签无关；唯一命中才认，多命中要求语言一致，否则跳过）；作用域按 `data-chat-turn` 收窄到本轮；保留「宿主最终没解析出块 → 还原源码」。
+
+**教训**：① 功能没生效时先找**入口**，别在下游反复调时机 —— 本次前两轮都在改下游，白改；② 与宿主 DOM 耦合的选择器，**类名一律按子串匹配**（CSS Modules 哈希不可预测），`data-*` 才是稳定契约；③ 凡是「宿主会告诉我 X」的假设，都要先用真机数据确认 X 真的在（这里语言就不在）；④ **fixture 不忠实 = 测试在保护一个不存在的 DOM**：旧 fixture 用未哈希的 `class="infostring"`、把 ```` ```lang ```` 写进 `textContent`、把 turnTail 放在消息内部 —— 三条与真机全反，所以上述三个 bug 全被测试"放行"了；⑤ 诊断手段：往 `clientVersion` 里塞诊断串（宿主 `debugLog` 原样落盘，见方法论第 4 条）+ 一次性 DOM 普查（祖先链 `data-*`、`data-chat-turn` 取值分布、每个代码块的横幅文本），比来回猜快得多；⑥ 客户端 bundle 由 `dsh-client-hmr` 每 500ms 轮询 mtime/ctime/size，变更即经 `/plugins/events` SSE 推送**热重载** —— 改客户端**不需要重启**；⑦ 改这个文件**不要用 PowerShell 5.1 的 `Get-Content`/`Set-Content`**（按 ANSI 解码 UTF-8，写回即整文件损坏，与教训 3 同源），用编辑工具或 .NET/Node 的显式 UTF-8 API。
 
 ---
 
