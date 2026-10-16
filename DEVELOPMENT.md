@@ -43,6 +43,7 @@
 | **1.6.7** | 提取修复 | DSH 结构化存储消息代码块（`{type:code, language, text}` 无围栏）→ `extractEventText` 识别图表语言代码块并还原 ` ```<lang> ` 围栏（数组分支 + collectText 兜底），修"助手消息的图不渲染、read-turn 返回 blocks=0 reason=none"；debug 日志实锤：带图的助手消息 read-turn blocks=0 |
 | **1.6.8** | 提示词 | 输出位置规则：代码块紧跟引入句之后、禁止堆积回答末尾；每图前一句说明、图文交替分布（WorkBuddy 建议，解决"图来得晚/图文脱节"） |
 | **1.6.9** | 展示详情 | WorkBuddy vizcb-detail-spec 落地（升级灯箱而非新弹层）：渲染/源码 tab（记住上次）、滚轮缩放+拖拽平移、源码原始文本 textContent 直出+横向滚动+超长截断、下载按类型命名（.svg/.html/.mmd）、新窗口打开（svg/html）、遮罩拖动不误关+焦点管理；卡片按钮「放大」→「详情」 |
+| **1.7.0** | 呈现层 | 「绘制过程」不再外露：占位骨架 + 180ms 淡入，源码围栏在**检测到成对闭合围栏**时立即隐藏（与骨架同一轮提交），宿主始终读不到块则还原源码（`retryGiveUpMs` 默认 6s），重试改递增退避阶梯（400/800/2000ms），骨架占位高度按语言预留。同时修复 v1.6.1 起**一直失效**的源码隐藏（教训 10） |
 
 ---
 
@@ -86,14 +87,53 @@
 ### 9. 权限策略与沙箱
 文件沙箱 `workspace-write` 拦截对 `~/.dsh` 的写入 → 按规则用 `sandbox_permissions` 升级并附一句 justification（用户审批）。审批策略曾被改为 `never`，之后又恢复 `ask` —— 全程按当前策略行事，不越权。
 
+### 10. 选择器写在"我以为的 DOM"上 —— 源码隐藏静默失效（v1.6.1~1.6.10）
+`hideSourceBlocks` 一直按 `code.language-mermaid` / `pre[data-lang]` 找围栏。但宿主渲染器的 `CodeBlock`（`@deepseek-ai/dsh-client-ui-primitives/lib/index.js`）只在**空围栏**这一种情况下输出 `language-*` 类；有内容的围栏渲染成
+`div.md-code-block > div._block > (div[data-code-block-banner] > div.infostring + div[data-code-block-content] > pre > code)`，
+语言名只以**文本**形式出现在横幅 `infostring` 里。于是 `matchFences` 永远返回空数组，"隐藏源码"这条功能从上线起就没生效过——而且**不报错、不告警**，只看截图完全看不出来（截图里的源码围栏很容易被当成"另一个代码块"）。
+**修复**：按真实 DOM 定位（横幅 infostring / 源码首行 ` ```lang ` 标记），按序号与宿主解析结果对账，对不上就放弃隐藏（宁可少藏，不可误藏用户的普通代码块）。
+**教训**：① 跨包依赖 DOM 结构时，去那个包的源码里确认它到底渲染成什么，不要按惯例猜；② "功能没生效"和"功能有效果但被别的东西盖住"在观感上无法区分，必须靠断言落地（本次补了客户端测试）；③ 与宿主结果对账时，宁可漏藏也不能误藏——误藏用户代码是更严重的事故。
+
+### 11. 自造 React 替身的天花板
+为了给"流式 DOM 时序"加回归测试，写了一个只实现 useState/useRef/useEffect 的极简 React 替身 + jsdom。它足以覆盖**围栏发现/隐藏/不误藏**（这轮改动最危险的部分，确实抓到并修掉了两个真 bug：多语言时只隐藏第一种、`data-code-block-content` 的父节点不是整块），但在"state 更新触发重渲染"这条链上不忠实——同序复用 hook 对象 + 自造调度，导致"骨架出现""失败还原"这类断言时好时坏。
+**处置**：只保留替身能可靠观察的断言（5 条），其余改由 host 单测（重试契约）+ 真机实测覆盖，并在测试文件里写明哪三项没在替身里断言、为什么。
+**教训**：测试替身省事，但要清楚它的边界；在替身里反复"修到绿"会掩盖真实行为。发现自己在为一个自造渲染器写第三个补丁时，就该停下来改用真机验证。
+
+### 12. jsdom 让插件整体 `failed to import`（v1.7.1，DSH 0.2.0-rc.2）
+插件装好后宿主只给一句 `vizcb-codeblock-visualizer (vizcb-codeblock-visualizer): failed to import`，没有堆栈。把宿主逼到 fatal（占住端口让 webserver 起不来）后，`~/.dsh/logs/startup-*.log` 里才露出真身：`TypeError: createRequire.resolve.paths is not a function or its return value is not iterable`，位于 `dsh-app-boot/lib/index.js` 的 `ResolutionRouter.routeScoped`，调用链是 desktop host 的 resolve 钩子 → CJS loader → 被 patch 的 `Module._resolveFilename`。
+
+定位过程（每一步都可复制）：
+1. 手工拷贝安装、pnpm 正规安装、绕开 desktop host 直接用 `dsh` bin 启动 —— 三种都失败，所以与装法、与 desktop 专有钩子无关（普通 `dsh web` 同样中招）。
+2. 在隔离的 probe profile（`$DSH_HOME/profiles/probe`：拷 profile 配置 + 对 node_modules 逐项建 junction，再把插件目录换成可编辑副本）里二分：去掉 `import { JSDOM } from "jsdom"` 后立刻 `[vizcb] mounted`；只留 dompurify 静态导入也能挂载；只留 jsdom 就失败；把 jsdom 改成 `await import("jsdom")` **仍然失败**。
+3. 结论：**宿主主线程一旦解析 jsdom 这个 CJS 依赖就崩**（dompurify 走 ESM 所以没事；`ue-log-reader` 只 import node 内置模块所以一直没事）。worker 线程没有这层解析钩子 —— `lib/mermaid-worker.mjs` 里 import jsdom 一直是好的。
+
+**处置**：`lib/index.js` 与 jsdom/DOMPurify 彻底隔离。`lib/svg-dom.mjs`（jsdom + DOMPurify + 节点自适应 + 配色增强）只被 worker import；新增 `lib/dom-worker.mjs` 专做 ````svg` 块消毒（与 mermaid 渲染分线程，免得 read-turn 排在渲染后面）；mermaid 渲染完在 worker 里就地收尾（增强 → 自适应 → 消毒）；`sanitizeSvgText` 变 async（失败仍 fail-closed 返回空串）；纯度量抽到 `lib/label-metrics.mjs` 供两侧共用。`apply()` 里预热消毒线程，避免把整条线程的冷启动（jsdom 冷加载 + 杀软扫描可能十几秒）算在第一个请求头上。
+**防线**：单测直接读 `lib/index.js` 源码，断言其中不出现 jsdom/dompurify（静态或动态 import）——这条坑不写断言，下次重构就会把它挪回来。
+**教训**：宿主插件里，**"能不能 import"和"装了没装"是两回事**；宿主对加载失败只报一句没有堆栈的话时，先用 fatal 启动把 `startup-*.log` 逼出来，再用二分法在隔离 profile 里定位到具体那一行 import。第三方 CJS 依赖出现在插件主线程入口，是 DSH 这版解析路由器的雷区。
+
+### 13. 客户端插槽 API 漂移：list slot 必须带 `options.id`（v1.7.2）
+服务端修好之后，页面上卡片依然只是代码块。最迷惑人的地方是**宿主侧全绿**：`/vizcb/debug` 200、mermaid 渲染 200、提示词 section 也注入了 —— 但 `os.tmpdir()/vizcb-debug.log` 里一条 `read-turn` 都没有（客户端只要挂载就一定会轮询）。客户端报错（浏览器 console）是决定性的：
+
+```
+Uncaught Error: list slot "conversation.chat.turnTail" requires options.id
+    at fh.register (index-*.js)
+    at bc.<anonymous> (client.js:1177)
+```
+
+`ctx.slots.register(options, Component)` 的**插槽种类**决定必填字段：`single` 无、`keyed` 要 `options.key`、`list` 要 `options.id`、`chain` 要 `options.select`；`order`/`label`/`priority`/`select`/`inject`/`children` 都是可选透传字段。这些常量可以直接从宿主 bundle 里读出来（见调试方法论第 7 条）：`"<slot 名>" requires options.` 就是校验点。本插件注册的 `conversation.chat.turnTail` 是 list 类，补上 `id: "vizcb-codeblock-visualizer"` 即可（旧宿主多传无害）。
+**教训**：① 客户端插件"注册成功"没有任何回执，`inject` 的插槽名不存在或注册抛错都是静默的，唯一可靠的信号是**宿主侧有没有收到客户端的请求**（本插件的 read-turn 就是活体探针）；② 报错一定要拿 console，不要让用户只描述症状 —— 同一句"还是代码块"在服务端没挂载、客户端没挂载、DOM 认不出三种情况下长得一模一样。
+**副产品**：本地 `file:` 依赖是**快照式**的，改了源码只重跑 `dsh plugin --profile desktop add file:<dir>` 不会刷新（pnpm 认为 spec 没变就复用），必须 `remove` 再 `add`（或改版本号）；客户端 bundle 由宿主按内容/修订号提供，页面 **Ctrl+Shift+R** 才会换到新的一份。
+
 ---
 
 ## 四、调试方法论（复现可用）
 
 1. **会话日志解码**：`~/.dsh/sessions/<workspace>/session-<id>/session.jsonl.zstd` 是 **每行一个 zstd 帧**，遍历帧魔数 `28 B5 2F FD` 逐帧解压、按行切分，得到完整事件流（turn/step/assistant-message/tool-call…）。
 2. **asar 索引解析**：`app.asar` 文件头 = 4 字节 pickle + 3 个 uint32 尺寸字段，JSON 索引从偏移 16 开始，offset 是字符串；据此定位任意客户端 bundle 源码。
-3. **隔离功能测试**：`lib/index.js` 导出纯函数（`analyzeBlocks`/`renderMermaidCached`/`sanitizeSvgText`…），`npm install && node --test test/` 直接 import 跑通（CI 同款），不依赖应用。
+3. **隔离功能测试**：`lib/index.js` 导出纯函数（`analyzeBlocks`/`renderMermaidCached`/`sanitizeSvgText`…），`npm install && node --test test/` 直接 import 跑通（CI 同款），不依赖应用。客户端另有一组 `test/client.test.mjs`：jsdom + 极简 React 替身驱动真实 `lib/client.js`，专测围栏发现/隐藏/不误藏（注意该替身的能力边界，见教训 11）。
 4. **请求级日志**：配置 `debugLog: true` 时宿主路由写 `os.tmpdir()/vizcb-debug.log`（客户端随请求上报版本号），一次重启+一次操作=铁证。
+5. **隔离 profile 二分**：`$DSH_HOME/profiles/<probe>` 必须是独立 profile 名（`desktop` 被 Electron 独占，CLI 会拒绝），拷 `package.json`/`cordis*.yml`/`pnpm-workspace.yaml` 后对原 profile 的 `node_modules` 逐项建 junction，再把要改的插件目录换成可编辑副本 —— 这样可以在不影响在用安装的前提下反复"改一行 → 起一次宿主 → 看挂载日志"。
+6. **逼出 fatal 启动日志**：非 required 插件激活失败时宿主只在控制台留一句 `did not activate`，不写文件。先用一个临时 `TcpListener` 占住 profile 的默认端口（web profile 是 3080），宿主启动即 fatal，`~/.dsh/logs/startup-*.log` 会带上每个 entry 的 outcome 与全部 startup messages（含真实堆栈）。
 
 ---
 

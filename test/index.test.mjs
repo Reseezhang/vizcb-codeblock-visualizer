@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, rm, readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import {
   resolveConfig,
@@ -22,17 +22,20 @@ import {
   buildFiles,
   langOfExt,
   handlePreviewFileRequest,
+  injectBootGlobals,
   shutdownMermaidWorker,
   PLUGIN_VERSION,
 } from "../lib/index.js";
 
-const require = createRequire(import.meta.url);
-const PKG_VERSION = require("../package.json").version;
+// 版本断言不硬编码字面量：每次发版必然失效（曾断言 1.6.9，实际已 1.6.10）。
+// 改为与独立读取的 package.json 版本比对，并校验形状。
+const pkgVersion = createRequire(import.meta.url)("../package.json").version;
 
 after(() => { shutdownMermaidWorker(); }); // 终止 worker，让测试进程正常退出
 
 test("version reads package.json", () => {
-  assert.equal(PLUGIN_VERSION, PKG_VERSION);
+  assert.equal(PLUGIN_VERSION, pkgVersion);
+  assert.match(PLUGIN_VERSION, /^\d+\.\d+\.\d+/);
 });
 
 test("config defaults", () => {
@@ -44,6 +47,31 @@ test("config defaults", () => {
   assert.equal(cfg.previewEnabled, true);
   assert.equal(cfg.previewMaxBytes, 5 * 1024 * 1024);
   assert.equal(cfg.hideSourceBlocks, true);
+});
+
+test("v1.7.0 重试契约：退避阶梯 + 放弃时限下发到客户端", () => {
+  const cfg = resolveConfig({});
+  // 阶梯首项必须远小于旧的固定 2000ms（流式场景下首屏等待主要来自这里）
+  assert.ok(Array.isArray(cfg.retryDelaysMs) && cfg.retryDelaysMs.length > 0);
+  assert.ok(cfg.retryDelaysMs[0] < 2000, "阶梯首项应远小于 2000ms，实际 " + cfg.retryDelaysMs[0]);
+  assert.equal(cfg.retryGiveUpMs, 6000);
+  // 阶梯应单调不减，否则末位兜底会来回跳
+  for (let i = 1; i < cfg.retryDelaysMs.length; i++) {
+    assert.ok(cfg.retryDelaysMs[i] >= cfg.retryDelaysMs[i - 1]);
+  }
+  const boot = JSON.parse(/window\.__VIZCB_CONFIG__=(\{.*?\})<\/script>/s.exec(injectBootGlobals("<body></body>", cfg))[1]);
+  assert.deepEqual(boot.retryDelaysMs, cfg.retryDelaysMs);
+  assert.equal(boot.retryGiveUpMs, cfg.retryGiveUpMs);
+  // 默认不下发旧的 retryDelayMs：否则客户端会当作用户显式配置，把退避阶梯一直挡住
+  assert.equal(boot.retryDelayMs, undefined);
+  assert.equal(boot.hideSourceBlocks, true);
+});
+
+test("v1.7.0 重试契约：用户显式配 retryDelayMs 时按固定间隔下发（兼容老配置）", () => {
+  const cfg = resolveConfig({ retryDelayMs: 1500 });
+  cfg.retryDelayMsExplicit = 1500; // apply() 里做的来源判定
+  const boot = JSON.parse(/window\.__VIZCB_CONFIG__=(\{.*?\})<\/script>/s.exec(injectBootGlobals("<body></body>", cfg))[1]);
+  assert.equal(boot.retryDelayMs, 1500);
 });
 
 test("analyzeBlocks extracts svg block with title", () => {
@@ -83,13 +111,26 @@ test("mermaid dialect aliases normalize to mermaid", () => {
   assert.equal(out.blocks[0].lang, "mermaid");
 });
 
-test("sanitizeSvgText strips script/onload/javascript:", () => {
+test("sanitizeSvgText strips script/onload/javascript:", async () => {
   const dirty = '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script><rect onload="evil()" x="0" y="0" width="10" height="10"/><a href="javascript:alert(2)"><text>hi</text></a></svg>';
-  const clean = sanitizeSvgText(dirty);
+  const clean = await sanitizeSvgText(dirty);
   assert.ok(!/<script/i.test(clean));
   assert.ok(!/onload/i.test(clean));
   assert.ok(!/javascript:/i.test(clean));
   assert.ok(clean.includes("<svg"));
+});
+
+test("host main-thread module never imports jsdom/dompurify", async () => {
+  // 回归防线：DSH 0.2.0-rc.2 解析 profile 插件引用的 CJS 依赖（jsdom）时会在
+  // ResolutionRouter.routeScoped 抛 "createRequire.resolve.paths is not a function"，
+  // 插件的整次 import 失败，宿主只报 "failed to import"。所以 lib/index.js（主线程入口）
+  // 必须与 jsdom/DOMPurify 彻底隔离，需要 DOM 的活儿一律放 worker（lib/svg-dom.mjs）。
+  const src = await readFile(new URL("../lib/index.js", import.meta.url), "utf8");
+  assert.ok(!/from\s+["']jsdom["']/.test(src), "lib/index.js 不得静态 import jsdom");
+  assert.ok(!/import\s*\(\s*["']jsdom["']\s*\)/.test(src), "lib/index.js 不得动态 import jsdom");
+  assert.ok(!/from\s+["']dompurify["']/.test(src), "lib/index.js 不得 import dompurify");
+  const domWorkerSrc = await readFile(new URL("../lib/svg-dom.mjs", import.meta.url), "utf8");
+  assert.match(domWorkerSrc, /from\s+["']jsdom["']/, "svg-dom.mjs 才是 jsdom 的容身处");
 });
 
 test("renderMermaidCached renders, caches and dedups in-flight", async () => {

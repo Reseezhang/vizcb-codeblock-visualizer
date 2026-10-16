@@ -1,49 +1,54 @@
 {
-    "name":  "vizcb-codeblock-visualizer",
-    "description":  "Render svg/html/mermaid code blocks as diagram cards + present-files workspace preview (v6.9: worker-isolated mermaid, host-side DOMPurify, file preview panel, hide source fences).",
-    "version":  "1.6.10",
-    "license":  "MIT",
-    "type":  "module",
-    "main":  "lib/index.js",
-    "exports":  {
-                    ".":  {
-                              "default":  "./lib/index.js"
-                          },
-                    "./client":  {
-                                     "default":  "./lib/client.js"
-                                 },
-                    "./package.json":  "./package.json"
-                },
-    "dsh":  {
-                "bundle":  {
-                               "patch":  "./cordis.patch.yml"
-                           },
-                "client":  {
-                               "inject":  [
-                                              "@deepseek-ai/dsh-client-runtime",
-                                              "@deepseek-ai/dsh-client-ui-conversation"
-                                          ],
-                               "platform":  "web"
-                           }
-            },
-    "files":  [
-                  "lib/index.js",
-                  "lib/client.js",
-                  "lib/mermaid-worker.mjs",
-                  "cordis.patch.yml",
-                  "README.md"
-              ],
-    "repository":  {
-                       "type":  "git",
-                       "url":  "git+https://github.com/Reseezhang/vizcb-codeblock-visualizer.git"
-                   },
-    "bugs":  {
-                 "url":  "https://github.com/Reseezhang/vizcb-codeblock-visualizer/issues"
-             },
-    "dependencies":  {
-                         "dompurify":  "^3.4.13",
-                         "jsdom":  "^30.0.1",
-                         "mermaid":  "^11.16.1",
-                         "svgdom":  "^0.1.28"
-                     }
+  "name": "vizcb-codeblock-visualizer",
+  "description": "Render svg/html/mermaid code blocks as diagram cards + present-files workspace preview (v1.7.2: 客户端 list slot 注册补 options.id（新宿主必需）+ jsdom/DOMPurify 全部移入 worker，修掉 DSH 0.2.0-rc.2 上的 failed to import；延续 v1.7.0 骨架占位 + 淡入 + 递增退避重试).",
+  "version": "1.7.2",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ],
+      "platform": "web"
+    }
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "lib/mermaid-worker.mjs",
+    "lib/dom-worker.mjs",
+    "lib/svg-dom.mjs",
+    "lib/label-metrics.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "package.json"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Reseezhang/vizcb-codeblock-visualizer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Reseezhang/vizcb-codeblock-visualizer/issues"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.13",
+    "jsdom": "^30.0.1",
+    "mermaid": "^11.16.1",
+    "svgdom": "^0.1.28"
+  }
 }

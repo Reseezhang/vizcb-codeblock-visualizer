@@ -1,6 +1,6 @@
 # vizcb-codeblock-visualizer
 
-![version](https://img.shields.io/badge/version-1.6.3-4F8CFF)
+![version](https://img.shields.io/badge/version-1.7.0-4F8CFF)
 ![license](https://img.shields.io/badge/license-MIT-34D399)
 ![ds desktop](https://img.shields.io/badge/DSH%20Desktop-2.0.4%20verified-F59E0B)
 ![mermaid](https://img.shields.io/badge/mermaid-host%20render%2Bworker-4F8CFF)
@@ -23,7 +23,8 @@ DeepSeek Harness 可视化插件：把模型回答中的 ````svg` / ````html` / 
 - **交互**：复制源码 / 全屏灯箱放大（Esc、点背景、按钮关闭）/ **保存导出**（原生对话框自选位置与格式：PNG / SVG；HTML 导出源文件）
 - **失败可见化**：未渲染时显示原因通知条；mermaid 渲染错误显示具体原因
 - **可预览文件（present-files）**：模型在回复末尾输出 ````present-files` 块列出最终成品文件 → 第一行自动打开预览面板（HTML 走 `sandbox="allow-scripts"` iframe，图片大图，css/js/文本源码），其余排成文件卡片点击切换；**mtime 轮询**：文件被改写后预览自动整体刷新；卡片支持**复制完整路径**、**在系统文件管理器中显示**（宿主 `explorer /select`）；路径先 resolve + 包含性校验（防 `../` 越界），经随机 token 前缀暴露，单文件超 `previewMaxBytes` 拒绝；用户手动关闭预览后本次会话不再自动弹开；`hideSourceBlocks` 隐藏渲染过的源码围栏，只留渲染结果（源码仍可复制；渲染失败/被禁用的图**不会**被误藏，源码保留）
-- **工程化**：配置化（8 块/条、64KB/块、重试间隔、画布底色、mermaid 深色模式、预览上限等）、per-seq 缓存（可重试失败不缓存，重试真实重取）、2s 自动重试、请求体限制 + 每会话限流 + mermaid 全局限流、`/vizcb/debug` 自检、启动日志 `[vizcb] mounted vX`、`node --test` 15 用例 + GitHub Actions CI
+- **呈现层（v1.7.0）**：源码围栏与渲染卡片**不同框**——检测到成对闭合围栏的同一轮提交里隐藏源码并顶出**占位骨架**，成品**淡入**出现；卡片按语言预留占位高度，减少跳位；`prefers-reduced-motion` 下无动画
+- **工程化**：配置化（8 块/条、64KB/块、重试阶梯、画布底色、mermaid 深色模式、预览上限等）、per-seq 缓存（可重试失败不缓存，重试真实重取）、**递增退避重试**（400/800/2000ms 阶梯，默认 6s 放弃并还原源码）、请求体限制 + 每会话限流 + mermaid 全局限流、`/vizcb/debug` 自检、启动日志 `[vizcb] mounted vX`、`node --test` 24 用例 + GitHub Actions CI
 
 ## 安装
 
@@ -82,7 +83,9 @@ dsh plugin --profile <name> add github:Reseezhang/vizcb-codeblock-visualizer
   config:
     maxBlocks: 8              # 每条消息最多渲染块数
     maxBlockChars: 65536      # 单块最大字符数
-    retryDelayMs: 2000        # 空结果重试间隔
+    retryDelaysMs: [400, 800, 2000]  # 空结果重试的递增退避阶梯（第 N 次失败取第 N 项，末位兜底）
+    retryGiveUpMs: 6000       # 放弃等待并还原源码的时限（ms）；超时后仍按末位间隔探测
+    retryDelayMs: 2000        # 【兼容旧配置】显式配置它即按固定间隔重试，退避阶梯失效
     minSvgHeight: 120         # SVG 无 viewBox 时的兜底高度
     mermaidEnabled: true      # 是否渲染 mermaid
     mermaidTextColor: "#E5E7EB"  # mermaid 深色主题文字/标签颜色（对齐宿主色板）
@@ -118,12 +121,19 @@ vizcb-codeblock-visualizer/
 │   └── index.test.mjs  # node --test 冒烟测试
 ├── .github/workflows/ci.yml
 └── lib/
-    ├── index.js        # Host：提示词 section + read-turn / mermaid.svg / p/<token> 预览 / reveal / debug 路由 + 消毒 + worker 管理
+    ├── index.js        # Host：提示词 section + read-turn / mermaid.svg / p/<token> 预览 / reveal / debug 路由 + worker 管理（不碰 jsdom）
     ├── client.js       # Client：turnTail 渲染 + 灯箱 + 保存导出 + 预览面板（__ModuleLoader__ 格式）
-    └── mermaid-worker.mjs # Worker：mermaid + svgdom 隔离渲染
+    ├── mermaid-worker.mjs # Worker：mermaid + svgdom 隔离渲染 + 渲染收尾（增强/自适应/消毒）
+    ├── dom-worker.mjs  # Worker：```svg 块的宿主端消毒（与 mermaid 渲染分线程，互不排队）
+    ├── svg-dom.mjs     # jsdom + DOMPurify + 节点自适应 + 配色增强（只允许被 worker import）
+    └── label-metrics.mjs # 纯文本度量（零依赖，主线程与 worker 共用）
 ```
 
 ## 版本历史
+
+- 1.7.2 修「宿主重载后卡片仍然只是代码块」：新版宿主的 **list 类插槽强制要求 `options.id`**（`chain` 要 `select`、`keyed` 要 `key`），`conversation.chat.turnTail` 正是 list 类，缺 `id` 时 `ctx.slots.register` 直接抛 `Uncaught Error: list slot "conversation.chat.turnTail" requires options.id`，客户端组件从未挂载（症状极具迷惑性：宿主侧一切正常、`/vizcb/debug` 200、提示词规范也注入了，但 `/vizcb/read-turn` 永远收不到请求）。注册项补 `id: "vizcb-codeblock-visualizer"`（旧宿主多传一个字段无害，向后兼容），客户端版本徽标常量同步对齐到 1.7.2
+- 1.7.1 修「插件在 DSH 0.2.0-rc.2 上 failed to import」：**jsdom 是 CJS 包，宿主主线程解析它时会让 DSH 的模块解析路由器抛 `TypeError: createRequire.resolve.paths is not a function`（`ResolutionRouter.routeScoped`），插件的整次 import 因此失败**（宿主只留一句 `failed to import`，装法/启动方式/版本都无关，1.6.10 与 1.7.0 同样中招；改 `await import("jsdom")` 也无效）。现在**主线程与 jsdom/DOMPurify 彻底隔离**：新模块 `lib/svg-dom.mjs`（jsdom + DOMPurify + 节点自适应 + 配色增强）只被 worker 线程 import，`lib/dom-worker.mjs` 专做 ````svg` 块的消毒，`lib/mermaid-worker.mjs` 渲染完就地收尾（增强 → 自适应 → 消毒），`sanitizeSvgText` 改为 async（失败仍 fail-closed 返回空）；`estimateLabelWidth` 抽到零依赖的 `lib/label-metrics.mjs` 供主线程与 worker 共用。另加回归防线：单测断言 `lib/index.js` 不得出现 jsdom/dompurify
+- 1.7.0 呈现层（"绘制过程"不再外露）：**占位骨架 + 淡入**替代"源码围栏 → 空白 → 硬切 → 跳位"四段式。① 新增 `VizSkeleton`（骨架条 + 按语言预留高度：svg/mermaid 320、html 420、present-files 480）② 源码隐藏时机从"卡片就绪"提前到**检测到成对闭合围栏**（分别数开/闭标记，流式中间态不会被误判），隐藏与骨架落在同一轮提交，不存在"卡片没出来源码已被藏"的空白窗口 ③ 宿主始终读不到块时**还原源码**（`retryGiveUpMs`，默认 6s）——这是与 v1.6.2 那次回退的关键区别 ④ 卡片 180ms 淡入，`prefers-reduced-motion` 下关闭 ⑤ 重试从固定 2s 改为递增退避阶梯。**同时修掉一个长期失效点**：源码围栏定位此前依赖 `code.language-mermaid`，而宿主渲染器的 `CodeBlock` 除空围栏外从不输出 `language-*` 类，导致隐藏逻辑一直空手而归；现在按真实 DOM（`div.md-code-block` + 横幅 `infostring` + 源码首行围栏标记）定位，并与宿主解析结果按序号对账，对不上就放弃隐藏
 
 - 1.6.9 展示详情弹窗（WorkBuddy vizcb-detail-spec 落地，升级现有灯箱）：新增「渲染 | 源码」tab（同会话记住上次选择）；渲染 tab 支持**滚轮缩放（0.2x–8x）+ 拖拽平移**；源码 tab 以**原始文本**（textContent 直出，非消毒产物）等宽显示、横向滚动、超长（>200KB/2000 行）截断提示且下载仍是完整内容；底部操作栏：复制源码 / **下载文件**（按类型命名 `.svg`/`.html`/`.mmd`）/ **在新窗口打开**（svg/html）；ESC/×/遮罩三种关闭 + 遮罩拖动后不误关 + 焦点管理；卡片按钮「放大」改「详情」
 - 1.6.8 提示词规则：**输出位置**——代码块必须紧跟在引入它的那句话之后输出，禁止把所有代码块堆积在回答末尾；每个代码块之前用一句话说明这张图展示什么，之后继续正文讲解；多个图时图文交替分布（解决"图来得晚"与"图和上下文脱节"，观感提升明显）

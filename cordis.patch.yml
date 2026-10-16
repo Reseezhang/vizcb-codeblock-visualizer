@@ -6,7 +6,9 @@
 #     config:
 #       maxBlocks: 8
 #       maxBlockChars: 65536
-#       retryDelayMs: 2000
+#       retryDelaysMs: [400, 800, 2000]  # 空结果重试的递增退避阶梯（第 N 次失败取第 N 项）
+#       retryGiveUpMs: 6000              # 放弃等待并还原源码的时限（ms）
+#       retryDelayMs: 2000               # 【兼容旧配置】显式配它 = 固定间隔重试，退避阶梯失效
 #       minSvgHeight: 120
 #       mermaidEnabled: true
 #       mermaidTextColor: "#E5E7EB"

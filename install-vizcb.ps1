@@ -1,4 +1,6 @@
-﻿# install-vizcb.ps1 - 一键安装 vizcb-codeblock-visualizer 到 DSH profile
+# 注意：本文件必须保存为「UTF-8 带 BOM」。Windows PowerShell 5.1 会把无 BOM 的文件
+# 按 ANSI 代码页解码，中文注释乱码后会引发语法错误（引号被吞、语句块失配）。
+# install-vizcb.ps1 - 一键安装 vizcb-codeblock-visualizer 到 DSH profile
 # 用法:  powershell -ExecutionPolicy Bypass -File install-vizcb.ps1
 #        powershell -ExecutionPolicy Bypass -File install-vizcb.ps1 -ProfileName web
 # 说明: 按 package.json files 白名单复制插件（排除 .git / test / .github 等开发文件）
@@ -26,11 +28,16 @@ $dest = Join-Path $profileRoot "node_modules\vizcb-codeblock-visualizer"
 Write-Host "[1/4] 复制插件 -> $dest"
 
 # 按 package.json 的 files 白名单复制；读不到就退回固定清单。
-$files = @("lib/index.js", "lib/client.js", "lib/mermaid-worker.mjs", "cordis.patch.yml", "README.md", "package.json")
+# 用 ReadAllText 而非 Get-Content：Windows PowerShell 5.1 的 Get-Content 会按 ANSI
+# 代码页解码无 BOM 的 UTF-8，含中文时 JSON 解析失败并静默退回默认清单。
+$files = @("lib/index.js", "lib/client.js", "lib/mermaid-worker.mjs", "lib/dom-worker.mjs", "lib/svg-dom.mjs", "lib/label-metrics.mjs", "cordis.patch.yml", "README.md", "package.json")
 try {
-  $pj = Get-Content (Join-Path $SourceDir "package.json") -Raw | ConvertFrom-Json
+  $pj = [System.IO.File]::ReadAllText((Join-Path $SourceDir "package.json"), $enc) | ConvertFrom-Json
   if ($pj.files -is [array] -and @($pj.files).Count -gt 0) { $files = @($pj.files) }
 } catch { Write-Warning "读取 package.json 失败，使用默认白名单" }
+# npm 语义：package.json 无论 files 是否列出都会被打包；本脚本把 files 当字面白名单用，
+# 漏掉它会让 lib/index.js 的 require("../package.json") 直接抛 Cannot find module。
+if ($files -notcontains "package.json") { $files += "package.json" }
 
 New-Item -ItemType Directory -Path $dest -Force | Out-Null
 Get-ChildItem $dest -Recurse -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
