@@ -1,8 +1,8 @@
 # vizcb-codeblock-visualizer
 
-![version](https://img.shields.io/badge/version-1.7.0-4F8CFF)
+![version](https://img.shields.io/badge/version-1.7.3-4F8CFF)
 ![license](https://img.shields.io/badge/license-MIT-34D399)
-![ds desktop](https://img.shields.io/badge/DSH%20Desktop-2.0.4%20verified-F59E0B)
+![ds desktop](https://img.shields.io/badge/DSH%20Desktop-0.2.0--rc.2%20verified-F59E0B)
 ![mermaid](https://img.shields.io/badge/mermaid-host%20render%2Bworker-4F8CFF)
 ![present](https://img.shields.io/badge/present-files%20preview-34D399)
 ![hide](https://img.shields.io/badge/source%20fences%20hidden-9CA3AF)
