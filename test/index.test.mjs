@@ -297,6 +297,31 @@ const STATE_SVG = FLOW_SVG
   .replace('class="flowchart"', 'class="statediagram"')
   .replace('aria-roledescription="flowchart-v2"', 'aria-roledescription="stateDiagram"');
 
+// 胶囊（([..])）在 mermaid 11 里是 <g class="label-container"><path>，菱形是 <polygon>。
+// 两者都装不下两行标签，旧实现直接跳过它们 → 文字从图形底部/两侧压出去（实测溢出 5px）。
+const STADIUM_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" id="local-render" class="flowchart" ' +
+  'aria-roledescription="flowchart-v2" viewBox="0 0 400 200">' +
+  '<g class="node default" transform="translate(200, 100)">' +
+  '<g class="basic label-container outer-path">' +
+  '<path d="M-30,-16 L30,-16 A16,16 0 0 1 30,16 L-30,16 A16,16 0 0 1 -30,-16 Z"></path></g>' +
+  '<g class="label" transform="translate(0, -10.9)"><text y="-10.1">' +
+  '<tspan class="text-outer-tspan" x="0" y="-0.1em" dy="1.1em">' +
+  '<tspan class="text-inner-tspan" font-weight="normal">收到播放请求</tspan></tspan>' +
+  '<tspan class="text-outer-tspan" x="0" y="1em" dy="1.1em">' +
+  '<tspan class="text-inner-tspan" font-weight="normal">onPlay</tspan></tspan>' +
+  "</text></g></g></svg>";
+
+const DIAMOND_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" id="local-render" class="flowchart" ' +
+  'aria-roledescription="flowchart-v2" viewBox="0 0 400 200">' +
+  '<g class="node default" transform="translate(200, 100)">' +
+  '<polygon class="label-container" points="40,0 80,-40 40,-80 0,-40" transform="translate(-40, 40)"></polygon>' +
+  '<g class="label" transform="translate(0, -10.9)"><text y="-10.1">' +
+  '<tspan class="text-outer-tspan" x="0" y="-0.1em" dy="1.1em">' +
+  '<tspan class="text-inner-tspan" font-weight="normal">设备在线?</tspan></tspan>' +
+  "</text></g></g></svg>";
+
 test("polish version is a positive integer", () => {
   assert.ok(Number.isInteger(POLISH_VERSION) && POLISH_VERSION > 0);
 });
@@ -326,6 +351,38 @@ test("polishNodes leaves non-flowchart diagrams untouched", () => {
   assert.ok(!/font-size="14"/.test(out), "不该改字号分级");
   assert.match(out, /text-outer-tspan" x="0" y="-8"/, "行位置应保持 mermaid 原样");
   assert.match(out, /text-outer-tspan" x="0" y="8"/);
+});
+
+// 胶囊/菱形装不下两行时，旧实现跳过它们 → 文字压出图形。现在要把图形按需撑开。
+test("polishNodes grows path-shaped nodes that cannot hold the label", () => {
+  const out = polishSvgLayout(STADIUM_SVG);
+  // 行盒改成绝对像素、dy 归零（em 单位会让行距随字号塌陷）
+  const ys = [...out.matchAll(/text-outer-tspan" x="0" y="([-\d.]+)" dy="0"/g)].map((m) => Number(m[1]));
+  assert.equal(ys.length, 2, "两行都要改成绝对坐标");
+  assert.ok(ys[0] < ys[1], "首行应在副标题上方");
+  assert.ok(Math.abs(ys[0]) < 32 && Math.abs(ys[1]) < 32, "行位置应落在图形内: " + ys.join(","));
+  // label 组不再自带位移
+  assert.match(out, /class="label" transform="translate\(0, 0\)"/);
+  // 图形被放大（横向 + 纵向），且保留原 transform 前缀
+  const scale = out.match(/<g class="basic label-container outer-path" transform="([^"]*)"/);
+  assert.ok(scale !== null, "图形应带上缩放 transform");
+  const m = scale[1].match(/scale\(([\d.]+),([\d.]+)\)/);
+  assert.ok(m !== null, "应是 scale(kx,ky)");
+  assert.ok(Number(m[1]) > 1 && Number(m[1]) <= 1.6, "横向放大且不超上限: " + m[1]);
+  assert.ok(Number(m[2]) > 1 && Number(m[2]) <= 1.6, "纵向放大且不超上限: " + m[2]);
+  // 描边不跟着变粗
+  assert.match(out, /vector-effect="non-scaling-stroke"/);
+});
+
+test("polishNodes keeps polygons centered and only grows them when needed", () => {
+  const out = polishSvgLayout(DIAMOND_SVG);
+  // 单行菱形：内容 20 + 12 = 32 高、够用 → 行盒居中在菱形中心（y=0）
+  assert.match(out, /class="label" transform="translate\(0, 0\)"/);
+  const t = out.match(/text-outer-tspan" x="0" y="([-\d.]+)" dy="0"/);
+  assert.ok(t !== null, "行应被改成绝对坐标");
+  assert.ok(Math.abs(Number(t[1])) < 8, "单行文字应贴近中心: " + t[1]);
+  // 原有 translate 必须保留（否则菱形会跑位）
+  assert.match(out, /transform="translate\(-40, 40\)/);
 });
 
 test("mermaidPolish gates both render params and post-processing", async () => {

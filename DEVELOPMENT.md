@@ -46,6 +46,7 @@
 | **1.7.0** | 呈现层 | 「绘制过程」不再外露：占位骨架 + 180ms 淡入，源码围栏在**检测到成对闭合围栏**时立即隐藏（与骨架同一轮提交），宿主始终读不到块则还原源码（`retryGiveUpMs` 默认 6s），重试改递增退避阶梯（400/800/2000ms），骨架占位高度按语言预留。同时修复 v1.6.1 起**一直失效**的源码隐藏（教训 10） |
 | **1.7.3** | 源码隐藏 | 三处宿主假设全不成立（类名被 CSS Modules 哈希 / 横幅对 svg·mermaid 只显示通用标签 / turnTail 是消息节点的**兄弟**）→ `domFences()` 恒返回空数组，`hideSourceBlocks` 从未生效。改为类名子串 + 正文特征识别 + 宿主解析结果**内容对账** + `data-chat-turn` 作用域收窄；顺带修掉「正文正则兜底误藏普通代码块」的反向 bug（教训 14） |
 | **1.7.4** | mermaid 版式 | 节点标签主/副标题分级 + 按真实行数重排并在框内**垂直居中**（修 svgdom 测量不准导致的行叠行 / 末行出框）+ 节点 rx=6 + 边标签去底色 + 连线 1.4px；渲染参数补 CJK 字体栈与 14px；**只对 flowchart 生效**；`mermaidPolish: false` 整包回滚；缓存 key 带配色与 `POLISH_VERSION` |
+| **1.7.5** | 图形自适应 | 后处理此前只认 `rect` 节点 —— 胶囊 `([..])`（`g>path`）与菱形 `{..}`（`polygon`）被跳过，mermaid 按单行给的尺寸装不下两行标签，文字压出图形（实测下溢 4.5px、左右各 4~5px）。改为从 `d`/`points` 反推包围盒：矩形改宽高，路径/多边形按需缩放（≤1.6×，超出压字号），描边加 `non-scaling-stroke`；`POLISH_VERSION` → 2 |
 
 ---
 
@@ -170,6 +171,12 @@ div[data-slot=conversation.chat.turnTail] < div[data-turn-tail=6] < div[data-slo
   （`flowchart-v2`），不要用 class 名（大小写与拼写在不同图类型间不一致）。
 - **`POLISH_VERSION` 必须放零依赖模块。** 它要进主线程的缓存 key，而规则在 `lib/svg-dom.mjs`；
   从那边 import 会把 jsdom 拖回主线程，教训 12 立刻复发。
+- **只处理 `rect` 节点等于没处理一半节点。** mermaid 11 的图形：`[..]` 是 `rect.label-container`，
+  `([..])` 胶囊是 `<g class="label-container"><path>`，`{..}` 菱形是 `<polygon class="label-container">`。
+  只按标签改字号而跳过图形 → mermaid 按「单行」给的尺寸装不下两行，文字从底部与两侧压出去
+  （实测下溢 4.5px）。jsdom 没有布局引擎，测不了图形，只能从 `d`/`points` 几何反推；
+  路径没法重建（mermaid 的 outer-path 带随机抖动），所以用 transform 缩放，并给描边加
+  `vector-effect="non-scaling-stroke"`，否则边框会跟着变粗。
 - **回滚开关要覆盖渲染参数。** 只关后处理、字号/字体栈/间距还在悄悄变，就没法用它做 A/B 定位。
   另外 mermaid 11.17 的 `outer-path` 的 `d` 值**每次渲染带随机抖动**（同代码两个进程连跑都不一样，
   字节数差 3~30），所以「逐字节等价」要剥掉 `d="..."` 再比。

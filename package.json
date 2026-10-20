@@ -1,7 +1,7 @@
 {
   "name": "vizcb-codeblock-visualizer",
-  "description": "Render svg/html/mermaid code blocks as diagram cards + present-files workspace preview (v1.7.4: mermaid 版式后处理 —— 节点标签主/副标题分级、按真实行数重排并垂直居中、节点圆角、边标签去底色、连线统一 1.4px；渲染参数补 CJK 字体栈与字号；只对 flowchart 生效，mermaidPolish=false 可整包回滚。延续 v1.7.3 源码围栏隐藏修复).",
-  "version": "1.7.4",
+  "description": "Render svg/html/mermaid code blocks as diagram cards + present-files workspace preview (v1.7.5: 修「胶囊/菱形里的文字压出图形」—— 后处理此前只认 rect 节点，([..]) 胶囊与 {..} 菱形被跳过，而 mermaid 按单行给的尺寸装不下两行标签；现在按几何属性反推图形包围盒，矩形改宽高、路径/多边形按需缩放（上限 1.6×，超出部分压字号），并让描边不随缩放变粗。延续 v1.7.4 版式后处理).",
+  "version": "1.7.5",
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",

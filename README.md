@@ -1,6 +1,6 @@
 # vizcb-codeblock-visualizer
 
-![version](https://img.shields.io/badge/version-1.7.4-4F8CFF)
+![version](https://img.shields.io/badge/version-1.7.5-4F8CFF)
 ![license](https://img.shields.io/badge/license-MIT-34D399)
 ![ds desktop](https://img.shields.io/badge/DSH%20Desktop-0.2.0--rc.2%20verified-F59E0B)
 ![mermaid](https://img.shields.io/badge/mermaid-host%20render%2Bworker-4F8CFF)
@@ -131,6 +131,7 @@ vizcb-codeblock-visualizer/
 
 ## 版本历史
 
+- 1.7.5 修「胶囊/菱形里的文字压出图形」（v1.7.4 的遗留）：后处理只认 `rect.label-container`，而 `([..])` 胶囊是 `<g class="label-container"><path>`、`{..}` 菱形是 `<polygon class="label-container">`，两者被直接跳过 —— mermaid 在 svgdom 下按「单行」算图形尺寸，两行标签就从底部（实测下溢 4.5px）和两侧（实测左右各溢 4~5px）压出去。现在：① 从 `d` / `points` 反推图形包围盒（jsdom 没有布局引擎，只能几何推算）② 矩形仍直接改宽高 ③ 路径/多边形按需非等比缩放（上限 1.6×），超出部分压字号兜住，并对描边加 `vector-effect="non-scaling-stroke"` 免得边框跟着变粗 ④ 行盒一律改成绝对像素并居中到图形中心。实测三个图形四边均为负值（文字完全在框内），state/class/ER 仍不受影响。`POLISH_VERSION` 递增到 2 让老缓存失效
 - 1.7.4 mermaid 版式优化（纯增量，不动渲染引擎）：多行标签此前在 SVG 里每行字号字重完全一致，自动生成的图因此显得「平」；而 svgdom 下字体测量不准，mermaid 按「换行前」的行数算子块居中与框高，实渲染折成更多行后**行与行会叠在一起、末行压出方框**。现在在 worker 里同一趟 jsdom 解析中做版式后处理：① 节点标签首行 → 主标题（14px/500）、其余行 → 副标题（11.5px/0.72）② 按真实行数用像素重算行盒，**并把整块文字在框内垂直居中**（只补高不居中会让文字贴住框顶）③ 节点方框补 rx=6 圆角 ④ 边标签去灰底 ⑤ 连线统一 1.4px。渲染参数同时补 CJK 字体栈（`Microsoft YaHei`/苹方）与 14px 字号、`curve: basis`、间距 45/55、padding 10。**只对 flowchart 生效**（state/class/ER 的 `g.node` 结构不同，按固定行盒重排会把标题顶到框上沿）；`mermaidPolish: false` 会把渲染参数、配色增强、后处理**整包**退回改动前行为，可直接做 A/B 回滚（逐字节等价已验证）。缓存 key 补上配色与 `POLISH_VERSION`，避免「改了配置旧图不变」。
 - 1.7.3 修「源码围栏一直不消失」（`hideSourceBlocks` 在 DSH 0.2.0-rc.2 上**从未生效过**——三处宿主假设都不成立，任一处单独就足以让功能失效）：① **语言标签类名是 CSS Modules 哈希名**：旧代码查 `[data-code-block-banner] .infostring`，而真机是 `_infostring_7gxqk_45`，永远匹配不到（实测映射见 DEVELOPMENT 教训 14）② **即使选中横幅，横幅也不显示语言**：宿主 CodeToolbar 的标签是 `isLang(lang) ? lang : codeLabel`，`isLang` 基于 **shiki 语法集**，`svg`/`mermaid`/`present-files` 都不在其中，只显示通用标签「代码块」（`js` 能显示正因为它在集合里）—— 语言在真机 DOM 上根本读不到 ③ **`turnTail` 槽位与助手消息节点是兄弟**（各自是 `div[data-chat-turn]` flowItem），旧实现「向上找最近的含代码祖先」会越过消息停在会话滚动列：`fences` 混进其它回合的块 → 与「本轮解析出的块」按序号对账必然错位（`targets` 恒空），命中数还会撞上 ≤24 守卫直接放弃（真机一个 turn 有 116 个流节点）。现在：语言标签按 `[class*="infostring"], [class*="language"]` 子串匹配；读不到语言时按**正文特征**识别（`^<svg`／mermaid 关键字…）；确认阶段改用宿主解析出的 `code` 做**归一化内容对账**（与顺序、语言标签无关，唯一命中才认，多命中要求语言一致，否则宁可少藏）；作用域按 `data-chat-turn` 收窄到本轮。**顺带修掉一个反向 bug**：原「正文正则扫 ```` ``` ````」兜底会把**讲解 mermaid 语法的普通代码块**误判成图表块并**藏掉用户代码**。另：客户端改动**不需要重启**（`dsh-client-hmr` 每 500ms 轮询每个客户端 bundle 的 mtime/ctime/size，变更后经 `/plugins/events` SSE 推送、浏览器热重载该模块）
 - 1.7.2 修「宿主重载后卡片仍然只是代码块」：新版宿主的 **list 类插槽强制要求 `options.id`**（`chain` 要 `select`、`keyed` 要 `key`），`conversation.chat.turnTail` 正是 list 类，缺 `id` 时 `ctx.slots.register` 直接抛 `Uncaught Error: list slot "conversation.chat.turnTail" requires options.id`，客户端组件从未挂载（症状极具迷惑性：宿主侧一切正常、`/vizcb/debug` 200、提示词规范也注入了，但 `/vizcb/read-turn` 永远收不到请求）。注册项补 `id: "vizcb-codeblock-visualizer"`（旧宿主多传一个字段无害，向后兼容），客户端版本徽标常量同步对齐到 1.7.2
