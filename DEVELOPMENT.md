@@ -45,6 +45,7 @@
 | **1.6.9** | 展示详情 | WorkBuddy vizcb-detail-spec 落地（升级灯箱而非新弹层）：渲染/源码 tab（记住上次）、滚轮缩放+拖拽平移、源码原始文本 textContent 直出+横向滚动+超长截断、下载按类型命名（.svg/.html/.mmd）、新窗口打开（svg/html）、遮罩拖动不误关+焦点管理；卡片按钮「放大」→「详情」 |
 | **1.7.0** | 呈现层 | 「绘制过程」不再外露：占位骨架 + 180ms 淡入，源码围栏在**检测到成对闭合围栏**时立即隐藏（与骨架同一轮提交），宿主始终读不到块则还原源码（`retryGiveUpMs` 默认 6s），重试改递增退避阶梯（400/800/2000ms），骨架占位高度按语言预留。同时修复 v1.6.1 起**一直失效**的源码隐藏（教训 10） |
 | **1.7.3** | 源码隐藏 | 三处宿主假设全不成立（类名被 CSS Modules 哈希 / 横幅对 svg·mermaid 只显示通用标签 / turnTail 是消息节点的**兄弟**）→ `domFences()` 恒返回空数组，`hideSourceBlocks` 从未生效。改为类名子串 + 正文特征识别 + 宿主解析结果**内容对账** + `data-chat-turn` 作用域收窄；顺带修掉「正文正则兜底误藏普通代码块」的反向 bug（教训 14） |
+| **1.7.4** | mermaid 版式 | 节点标签主/副标题分级 + 按真实行数重排并在框内**垂直居中**（修 svgdom 测量不准导致的行叠行 / 末行出框）+ 节点 rx=6 + 边标签去底色 + 连线 1.4px；渲染参数补 CJK 字体栈与 14px；**只对 flowchart 生效**；`mermaidPolish: false` 整包回滚；缓存 key 带配色与 `POLISH_VERSION` |
 
 ---
 
@@ -153,6 +154,25 @@ div[data-slot=conversation.chat.turnTail] < div[data-turn-tail=6] < div[data-slo
 **教训**：① 功能没生效时先找**入口**，别在下游反复调时机 —— 本次前两轮都在改下游，白改；② 与宿主 DOM 耦合的选择器，**类名一律按子串匹配**（CSS Modules 哈希不可预测），`data-*` 才是稳定契约；③ 凡是「宿主会告诉我 X」的假设，都要先用真机数据确认 X 真的在（这里语言就不在）；④ **fixture 不忠实 = 测试在保护一个不存在的 DOM**：旧 fixture 用未哈希的 `class="infostring"`、把 ```` ```lang ```` 写进 `textContent`、把 turnTail 放在消息内部 —— 三条与真机全反，所以上述三个 bug 全被测试"放行"了；⑤ 诊断手段：往 `clientVersion` 里塞诊断串（宿主 `debugLog` 原样落盘，见方法论第 4 条）+ 一次性 DOM 普查（祖先链 `data-*`、`data-chat-turn` 取值分布、每个代码块的横幅文本），比来回猜快得多；⑥ 客户端 bundle 由 `dsh-client-hmr` 每 500ms 轮询 mtime/ctime/size，变更即经 `/plugins/events` SSE 推送**热重载** —— 改客户端**不需要重启**；⑦ 改这个文件**不要用 PowerShell 5.1 的 `Get-Content`/`Set-Content`**（按 ANSI 解码 UTF-8，写回即整文件损坏，与教训 3 同源），用编辑工具或 .NET/Node 的显式 UTF-8 API。
 
 ---
+
+### 15. 后处理的三个硬约束：作用域、特异度、居中（v1.7.4）
+
+- **特异度不是靠 `!important` 能赢的。** mermaid 自己的规则带 `#<svgId>` 前缀（`1,1,0`），后处理注入的
+  `.vizcb-mmd .flowchart-link`（`0,2,0`）即使加 `!important` 也输 —— `!important` 只抬高「重要性等级」，
+  同等级内仍比特异度。表现是「写了一条新规则、线上毫无变化，且旧规则看起来像死代码」（实测计算值仍是 2.4px）。
+  唯一出路是改**产出那条规则的那一处**（`enhanceSvgVisibility`），不要在下游再写覆盖；真要压过 `#id`，
+  选择器里必须含 id（实测 `#local-render.vizcb-mmd .flowchart-link` 才生效）。
+- **补高方框 ≠ 修好排版。** 框比内容高时必须把整块文字居中：
+  `start = -h/2 + (h - contentH)/2`。只从 `-h/2` 往下堆会让文字贴住框上沿（实测下留白 14.6~30.2px、
+  ER 实体标题贴顶 62px），而「不重叠 / 不出框」这类目检项**照样全过** —— 验收要加「上下留白差 ≤ 2px」。
+- **重排只在 flowchart 上成立。** state / class / ER 的 `g.node` 结构不同（方框未必以节点原点为心、
+  有的节点内含属性行），按固定行盒重排会把标题顶到框上沿。判定用根节点 `aria-roledescription`
+  （`flowchart-v2`），不要用 class 名（大小写与拼写在不同图类型间不一致）。
+- **`POLISH_VERSION` 必须放零依赖模块。** 它要进主线程的缓存 key，而规则在 `lib/svg-dom.mjs`；
+  从那边 import 会把 jsdom 拖回主线程，教训 12 立刻复发。
+- **回滚开关要覆盖渲染参数。** 只关后处理、字号/字体栈/间距还在悄悄变，就没法用它做 A/B 定位。
+  另外 mermaid 11.17 的 `outer-path` 的 `d` 值**每次渲染带随机抖动**（同代码两个进程连跑都不一样，
+  字节数差 3~30），所以「逐字节等价」要剥掉 `d="..."` 再比。
 
 ## 四、调试方法论（复现可用）
 

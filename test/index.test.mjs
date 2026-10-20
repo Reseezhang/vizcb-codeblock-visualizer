@@ -26,6 +26,8 @@ import {
   shutdownMermaidWorker,
   PLUGIN_VERSION,
 } from "../lib/index.js";
+import { POLISH_VERSION } from "../lib/polish-version.mjs";
+import { polishSvgLayout } from "../lib/svg-dom.mjs";
 
 // 版本断言不硬编码字面量：每次发版必然失效（曾断言 1.6.9，实际已 1.6.10）。
 // 改为与独立读取的 package.json 版本比对，并校验形状。
@@ -271,4 +273,73 @@ test("handlePreviewFileRequest enforces size cap", async () => {
     await new Promise((r) => server.close(r));
     await rm(root, { recursive: true, force: true });
   }
+});
+
+// ── 版式后处理（mermaidPolish）─────────────────────────────────────────
+// 回归防线，对应三条踩过的坑：
+//  · 重排只能落在 flowchart —— state / class / ER 的 g.node 结构不同，按固定行盒
+//    重排会把标题顶到框上沿（实测 ER 标题贴顶、下留白 62px）；
+//  · 框比内容高时整块文字必须居中，否则「不重叠、不出框」的验收项全过而观感是坏的；
+//  · 连线粗细只能在 enhanceSvgVisibility 一处定 —— class 规则加 !important 也赢不了
+//    mermaid 的 #<id> 规则（!important 不改变特异度）。
+
+const FLOW_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" id="local-render" class="flowchart" ' +
+  'aria-roledescription="flowchart-v2" viewBox="0 0 200 200">' +
+  '<g class="node" transform="translate(100, 100)">' +
+  '<rect class="label-container" x="-40" y="-16" width="80" height="32"></rect>' +
+  '<g class="label"><text>' +
+  '<tspan class="text-outer-tspan" x="0" y="-8"><tspan class="text-inner-tspan">主标题一行</tspan></tspan>' +
+  '<tspan class="text-outer-tspan" x="0" y="8"><tspan class="text-inner-tspan">副标题细节</tspan></tspan>' +
+  "</text></g></g></svg>";
+
+const STATE_SVG = FLOW_SVG
+  .replace('class="flowchart"', 'class="statediagram"')
+  .replace('aria-roledescription="flowchart-v2"', 'aria-roledescription="stateDiagram"');
+
+test("polish version is a positive integer", () => {
+  assert.ok(Number.isInteger(POLISH_VERSION) && POLISH_VERSION > 0);
+});
+
+test("polishNodes grades label rows and centers the text block", () => {
+  const out = polishSvgLayout(FLOW_SVG);
+  // 首行主标题、次行副标题
+  assert.match(out, /text-inner-tspan[^>]*font-size="14"[^>]*font-weight="500"/);
+  assert.match(out, /text-inner-tspan[^>]*font-size="11\.5"/);
+  // 框按真实行数补高：20 + 17 + 6*2 = 49，且中心保持在原位
+  assert.match(out, /height="49"/);
+  assert.match(out, / y="-24\.5"/);
+  // 圆角与作用域 class
+  assert.match(out, /rx="6"/);
+  assert.match(out, /class="[^"]*vizcb-mmd/);
+  // 两行行首 y：内容高 37，框高 49 → 起点 -18.5；首行基线 -18.5 + 20*0.78
+  assert.match(out, /text-outer-tspan" x="0" y="-2\.9"/);
+  assert.match(out, /text-outer-tspan" x="0" y="14\.76"/);
+});
+
+test("polishNodes leaves non-flowchart diagrams untouched", () => {
+  const out = polishSvgLayout(STATE_SVG);
+  // 序列化本身会把 <rect></rect> 收成 <rect/>，所以比对「被改写的特征」而不是整串
+  assert.ok(!/vizcb-mmd/.test(out), "不该加作用域 class");
+  assert.ok(!/<style/.test(out), "不该注入样式");
+  assert.ok(!/rx="6"/.test(out), "不该补圆角");
+  assert.ok(!/font-size="14"/.test(out), "不该改字号分级");
+  assert.match(out, /text-outer-tspan" x="0" y="-8"/, "行位置应保持 mermaid 原样");
+  assert.match(out, /text-outer-tspan" x="0" y="8"/);
+});
+
+test("mermaidPolish gates both render params and post-processing", async () => {
+  const code = 'flowchart TD\n  A[开始<br/>准备数据] --> B{判断}\n  B -- "否" --> C[重试]';
+  const on = await renderMermaidCached(code, true, resolveConfig({}));
+  const off = await renderMermaidCached(code, true, resolveConfig({ mermaidPolish: false }));
+  assert.notEqual(on, off, "开关必须真正改变输出");
+  assert.match(on, /vizcb-mmd/, "开启时应有后处理样式");
+  assert.ok(!/vizcb-mmd/.test(off), "关闭时不得注入后处理样式");
+  assert.match(on, /rx="6"/);
+  // 连线粗细是单一来源：只在配色增强那一处按开关产出
+  assert.match(on, /\.flowchart-link\{stroke:#4F8CFF!important;stroke-width:1\.4px!important\}/);
+  assert.match(off, /\.flowchart-link\{stroke:#4F8CFF!important;stroke-width:2\.4px!important\}/);
+  // 缓存 key 必须区分开关：同一段代码两次渲染不得互相命中
+  const onAgain = await renderMermaidCached(code, true, resolveConfig({}));
+  assert.equal(onAgain, on);
 });
